@@ -7,11 +7,15 @@ const ids=Array.from({length:9},()=>crypto.randomUUID());
 const [ownerA,ownerB,viewer,admin,orgA,orgB]=ids;
 
 test('PostgreSQL : RLS réelle, isolation, lecture seule, RPC et idempotence',async t=>{
- const db=new PGlite();
+ const remote=process.env.NR_TEST_REMOTE==='1';
+ const db=remote?await (await import('../scripts/remote-test-database.mjs')).remoteTestDatabase():new PGlite();
+ try{
+ if(!remote){
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;grant usage on schema public,auth to anon,authenticated,service_role;grant execute on function auth.uid() to anon,authenticated,service_role;`);
  await db.exec(await readFile(new URL('../supabase/migrations/20261001151646_platform_foundation.sql',import.meta.url),'utf8'));
  await db.exec(await readFile(new URL('../supabase/migrations/20261001152615_commercial_transactions.sql',import.meta.url),'utf8'));
- await db.query('insert into auth.users values($1),($2),($3),($4)',[ownerA,ownerB,viewer,admin]);
+ }
+ await db.query('insert into auth.users(id) values($1),($2),($3),($4)',[ownerA,ownerB,viewer,admin]);
  await db.query('insert into nr_organizations(id,owner_id,name) values($1,$2,$3),($4,$5,$6)',[orgA,ownerA,'A',orgB,ownerB,'B']);
  await db.query("insert into nr_members values($1,$2,'owner',true,true),($3,$4,'owner',true,true),($1,$5,'viewer',false,true)",[orgA,ownerA,orgB,ownerB,viewer]);
  await db.query('insert into nr_admins(user_id) values($1)',[admin]);
@@ -32,7 +36,7 @@ test('PostgreSQL : RLS réelle, isolation, lecture seule, RPC et idempotence',as
  });
  await t.test('version concurrente devient conflit sans écrasement',async()=>{
   const result=await sync(crypto.randomUUID(),'hash-b',0);assert.equal(result.conflict,true);
-  assert.equal((await db.query('select version from nr_organizations where id=$1',[orgA])).rows[0].version,1);
+  assert.equal((await db.query('select version::int version from nr_organizations where id=$1',[orgA])).rows[0].version,1);
  });
  await t.test('client B ne voit aucune ligne du client A',async()=>{
   const result=await as(ownerB,()=>db.query('select * from nr_records'));assert.equal(result.rows.length,0);
@@ -104,5 +108,12 @@ test('PostgreSQL : RLS réelle, isolation, lecture seule, RPC et idempotence',as
   await assert.rejects(()=>rpc('select nr_order_create($1,$2,$3,$4,$5,$6,$7) result',[orgB,ownerB,'avance',1,'','wakati',crypto.randomUUID()]),/payment_method_unavailable/);
   await as(ownerB,()=>assert.rejects(()=>db.query('select nr_order_decide($1,$2,true)',[ownerB,paidOrder.id]),/permission denied/));
  });
- await db.close();
+ await t.test('inscription idempotente et essai exactement sept jours',async()=>{
+  const user=crypto.randomUUID();await db.query('insert into auth.users(id) values($1)',[user]);
+  const org=await rpc('select nr_onboard($1,$2) result',[user,'Essai de recette']);
+  assert.equal(await rpc('select nr_onboard($1,$2) result',[user,'Essai répété']),org);
+  const rows=(await db.query("select extract(epoch from ends_at-starts_at)::int seconds from nr_subscriptions where org_id=$1 and plan_id='gratuit'",[org])).rows;
+  assert.equal(rows.length,1);assert.equal(rows[0].seconds,7*86400);
+ });
+ }finally{await db.close();}
 });

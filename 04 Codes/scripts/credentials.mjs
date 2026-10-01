@@ -8,5 +8,8 @@ export function credentials() {
     const match = line.match(/^([^:=]+?)\s*[:=]\s*(.*)$/);
     if (match) values[match[1].trim()] = match[2].trim();
   }
+  // The dashboard also presents a heading followed by a standalone URI.
+  const pooler = text.match(/postgres(?:ql)?:\/\/[^\s]+\.pooler\.supabase\.com[^\s]*/);
+  if (!values['Session pooler'] && pooler) values['Session pooler'] = pooler[0];
   return values;
 }
