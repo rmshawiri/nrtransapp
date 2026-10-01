@@ -1,10 +1,13 @@
 import pg from 'pg';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {credentials} from './credentials.mjs';
+import {resolve6} from 'node:dns/promises';
 const c=credentials();
 const raw=c['Direct connection'];
 const connectionString=raw.replace('[YOUR-PASSWORD]',encodeURIComponent(c['Mot de passe']));
-const client=new pg.Client({connectionString,connectionTimeoutMillis:15000,query_timeout:15000});
+const parsed=new URL(connectionString);
+const addresses=await resolve6(parsed.hostname).catch(()=>[]);
+const client=new pg.Client({host:process.env.NR_DB_HOST||addresses[0]||parsed.hostname,port:Number(parsed.port||5432),user:decodeURIComponent(parsed.username),password:decodeURIComponent(parsed.password),database:parsed.pathname.slice(1),ssl:{servername:parsed.hostname,rejectUnauthorized:true},connectionTimeoutMillis:15000,query_timeout:15000});
 try {
  await client.connect();
  await client.query('BEGIN READ ONLY');
