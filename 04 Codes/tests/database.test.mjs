@@ -10,6 +10,7 @@ test('PostgreSQL : RLS réelle, isolation, lecture seule, RPC et idempotence',as
  const db=new PGlite();
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;grant usage on schema public,auth to anon,authenticated,service_role;grant execute on function auth.uid() to anon,authenticated,service_role;`);
  await db.exec(await readFile(new URL('../supabase/migrations/20261001151646_platform_foundation.sql',import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../supabase/migrations/20261001152615_commercial_transactions.sql',import.meta.url),'utf8'));
  await db.query('insert into auth.users values($1),($2),($3),($4)',[ownerA,ownerB,viewer,admin]);
  await db.query('insert into nr_organizations(id,owner_id,name) values($1,$2,$3),($4,$5,$6)',[orgA,ownerA,'A',orgB,ownerB,'B']);
  await db.query("insert into nr_members values($1,$2,'owner',true,true),($3,$4,'owner',true,true),($1,$5,'viewer',false,true)",[orgA,ownerA,orgB,ownerB,viewer]);
@@ -63,6 +64,45 @@ test('PostgreSQL : RLS réelle, isolation, lecture seule, RPC et idempotence',as
  await t.test('anonyme : tarifs exacts visibles, finances interdites',async()=>{
   await db.exec('set role anon');
   try{assert.equal((await db.query('select * from nr_prices')).rows.length,8);await assert.rejects(()=>db.query('select * from nr_records'),/permission denied/);}finally{await db.exec('reset role');}
+ });
+ const rpc=async(sql,params)=>{await db.exec('set role service_role');try{return (await db.query(sql,params)).rows[0].result;}finally{await db.exec('reset role');}};
+ await t.test('SQL calcule exactement les huit tarifs officiels',async()=>{
+  for(const [plan,expected] of [['avance',[2500,6000,12000,18000]],['vip',[5000,13500,27000,48000]]]){
+   for(const [index,months] of [1,3,6,12].entries()){
+    const quote=await rpc('select nr_quote($1,$2,$3,$4,$5) result',[orgB,ownerB,plan,months,'']);assert.equal(quote.total,expected[index]);
+   }
+  }
+ });
+ let paidOrder;
+ await t.test('création idempotente, déclaration puis validation admin unique',async()=>{
+  const key=crypto.randomUUID(),params=[orgB,ownerB,'avance',3,'','mvola',key];
+  paidOrder=await rpc('select nr_order_create($1,$2,$3,$4,$5,$6,$7) result',params);
+  assert.equal(paidOrder.total,6000);
+  assert.equal((await rpc('select nr_order_create($1,$2,$3,$4,$5,$6,$7) result',params)).id,paidOrder.id);
+  await assert.rejects(()=>rpc('select nr_order_create($1,$2,$3,$4,$5,$6,$7) result',[orgB,ownerB,'avance',3,'DIFFERENT','mvola',key]),/idempotency_key_reused/);
+  await assert.rejects(()=>rpc('select nr_order_decide($1,$2,true) result',[ownerB,paidOrder.id]),/access_denied/);
+  await rpc('select nr_payment_declare($1,$2,$3,$4) result',[orgB,ownerB,paidOrder.id,'TEST-ONLY']);
+  const before=(await db.query('select max(ends_at) e from nr_subscriptions where org_id=$1',[orgB])).rows[0].e;
+  const approved=await rpc('select nr_order_decide($1,$2,true) result',[admin,paidOrder.id]);
+  assert.equal(new Date(approved.startsAt).getTime(),new Date(before).getTime());
+  assert.equal((await rpc('select nr_order_decide($1,$2,true) result',[admin,paidOrder.id])).replayed,true);
+  assert.equal((await db.query('select count(*)::int n from nr_subscriptions where order_id=$1',[paidOrder.id])).rows[0].n,1);
+ });
+ await t.test('limite promo réservée atomiquement et cadeau 100 % activé',async()=>{
+  await db.query("insert into nr_promotions(code,name,type,value,max_uses) values('CADEAU','Test','percent',100,1)");
+  const gift=await rpc('select nr_order_create($1,$2,$3,$4,$5,$6,$7) result',[orgB,ownerB,'avance',1,'CADEAU','mvola',crypto.randomUUID()]);
+  assert.equal(gift.total,0);assert.equal(gift.status,'approved');
+  await assert.rejects(()=>rpc('select nr_order_create($1,$2,$3,$4,$5,$6,$7) result',[orgB,ownerB,'avance',1,'CADEAU','mvola',crypto.randomUUID()]),/promotion_limit/);
+ });
+ await t.test('changement de forfait non défini ne valide pas le paiement',async()=>{
+  const order=await rpc('select nr_order_create($1,$2,$3,$4,$5,$6,$7) result',[orgB,ownerB,'vip',1,'','mvola',crypto.randomUUID()]);
+  await rpc('select nr_payment_declare($1,$2,$3,$4) result',[orgB,ownerB,order.id,'TEST-UPGRADE']);
+  await assert.rejects(()=>rpc('select nr_order_decide($1,$2,true) result',[admin,order.id]),/plan_change_policy_required/);
+  assert.equal((await db.query('select status from nr_orders where id=$1',[order.id])).rows[0].status,'declared');
+ });
+ await t.test('Wakati indisponible et appel commercial navigateur refusés',async()=>{
+  await assert.rejects(()=>rpc('select nr_order_create($1,$2,$3,$4,$5,$6,$7) result',[orgB,ownerB,'avance',1,'','wakati',crypto.randomUUID()]),/payment_method_unavailable/);
+  await as(ownerB,()=>assert.rejects(()=>db.query('select nr_order_decide($1,$2,true)',[ownerB,paidOrder.id]),/permission denied/));
  });
  await db.close();
 });
