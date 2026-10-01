@@ -115,5 +115,34 @@ test('PostgreSQL : RLS réelle, isolation, lecture seule, RPC et idempotence',as
   const rows=(await db.query("select extract(epoch from ends_at-starts_at)::int seconds from nr_subscriptions where org_id=$1 and plan_id='gratuit'",[org])).rows;
   assert.equal(rows.length,1);assert.equal(rows[0].seconds,7*86400);
  });
+ await t.test('prêt partagé VIP et véhicule interdit au lecteur',async()=>{
+  await db.query("update nr_subscriptions set ends_at=now()+interval '7 days' where org_id=$1",[orgA]);
+  const shared=structuredClone(state),link=shared.loanVehicles[0];
+  const half=Math.floor(link.amount*100/2)/100;
+  shared.loanVehicles.push({id:crypto.randomUUID(),loanId:link.loanId,vehicleId:shared.vehicles[1].id,amount:Math.round((link.amount-half)*100)/100});link.amount=half;
+  validateFleet(shared);assert.equal((await sync(crypto.randomUUID(),'shared-loan',1,shared)).version,2);
+  await as(viewer,async()=>{
+   assert.equal((await db.query('select * from nr_records where id=$1',[shared.vehicles[1].id])).rows.length,0);
+   assert.equal((await db.query('select * from nr_records where id=$1',[link.loanId])).rows.length,0);
+   assert.equal((await db.query('select * from nr_loan_allocations where vehicle_id=$1',[shared.vehicles[1].id])).rows.length,0);
+  });
+  assert.equal((await as(ownerA,()=>db.query("select * from nr_records where kind='vehicles'"))).rows.length,2);
+ });
+ await t.test('Avancé refuse le deuxième véhicule côté serveur',async()=>{
+  await assert.rejects(()=>rpc('select nr_sync_apply($1,$2,$3,$4,$5,$6) result',[orgB,ownerB,crypto.randomUUID(),'advanced-limit',0,state]),/upgrade_required/);
+ });
+ await t.test('promotions fixes et pourcentage calculées en base',async()=>{
+  await db.query("insert into nr_promotions(code,name,type,value) values('FIXEDTEST','Recette','fixed',1000),('PERCENTTEST','Recette','percent',25)");
+  const fixed=await rpc('select nr_quote($1,$2,$3,$4,$5) result',[orgB,ownerB,'avance',1,'FIXEDTEST']);
+  const percent=await rpc('select nr_quote($1,$2,$3,$4,$5) result',[orgB,ownerB,'vip',3,'PERCENTTEST']);
+  assert.equal(fixed.total,1500);assert.equal(percent.total,10125);
+ });
+ await t.test('refus administratif motivé sans activation',async()=>{
+  const order=await rpc('select nr_order_create($1,$2,$3,$4,$5,$6,$7) result',[orgB,ownerB,'avance',1,'','mvola',crypto.randomUUID()]);
+  await rpc('select nr_payment_declare($1,$2,$3,$4) result',[orgB,ownerB,order.id,'REFUS-TEST']);
+  await assert.rejects(()=>rpc('select nr_order_decide($1,$2,false,$3) result',[admin,order.id,'']),/reason_required/);
+  assert.equal((await rpc('select nr_order_decide($1,$2,false,$3) result',[admin,order.id,'Justificatif non concordant'])).status,'rejected');
+  assert.equal((await db.query('select * from nr_subscriptions where order_id=$1',[order.id])).rows.length,0);
+ });
  }finally{await db.close();}
 });
