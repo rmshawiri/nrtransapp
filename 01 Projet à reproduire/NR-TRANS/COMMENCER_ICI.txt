@@ -1,0 +1,24 @@
+NR-TRANS — Gestion de transport
+
+1. Extraire tout le dossier ZIP.
+2. Double-cliquer sur LANCER_NR_TRANS.bat.
+3. Garder la fenêtre du serveur ouverte.
+4. Choisir la démonstration ou une base vide.
+5. Renseigner les Paramètres.
+
+Ne pas ouvrir index.html directement.
+Toujours utiliser le même navigateur et la même adresse locale.
+
+SAUVEGARDE : bouton Sauvegarde → Télécharger une sauvegarde.
+Conserver les fichiers JSON en dehors du navigateur, idéalement sur une clé USB.
+
+IMPORTANT : la commission est due EN PLUS du versement reçu.
+En salaire fixe, enregistrer chaque mois le salaire dû dans Chauffeur,
+puis enregistrer séparément les paiements.
+
+Cette livraison a passé 17 tests métier. Les tests visuels dans un navigateur
+et le lancement Windows restent à confirmer sur votre ordinateur.
+Dans Sauvegarde, le lien « Vérifier le stockage et la restauration sur cet
+appareil » permet de lancer des contrôles isolés sans toucher à vos comptes.
+
+Détails : README.md, SCHEMA.md et RAPPORT_LIVRAISON.md.

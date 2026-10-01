@@ -1,0 +1,6 @@
+import {validate} from './core.js';
+let db;
+export function closeDB(){if(db)db.close();}
+export function openDB(name='nr-trans-local'){return new Promise((resolve,reject)=>{const r=indexedDB.open(name,1);r.onupgradeneeded=()=>r.result.createObjectStore('state');r.onerror=()=>reject(r.error);r.onsuccess=()=>{db=r.result;db.onversionchange=()=>db.close();resolve(db);};});}
+export function read(){return new Promise((resolve,reject)=>{const r=db.transaction('state').objectStore('state').get('main');r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>reject(r.error);});}
+export function save(state,expectedRevision){validate(state);return new Promise((resolve,reject)=>{const tx=db.transaction('state','readwrite'),store=tx.objectStore('state');let conflict=false;const req=store.get('main');let next;req.onsuccess=()=>{if((req.result?.revision??null)!==expectedRevision){conflict=true;tx.abort();return;}next=structuredClone(state);next.revision=(req.result?.revision??0)+1;store.put(next,'main');};tx.oncomplete=()=>resolve(next);tx.onabort=()=>reject(Error(conflict?'Les données ont changé dans un autre onglet. Rechargez la page avant de réessayer.':'Enregistrement impossible. Les données précédentes sont conservées.'));tx.onerror=()=>{};});}

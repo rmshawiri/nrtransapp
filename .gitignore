@@ -1,0 +1,17 @@
+# Credentials and private operational exports
+02 Documentation/*comptes*
+02 Documentation/*Comptes*
+**/.env
+**/.env.*
+!**/.env.example
+**/.private/
+**/node_modules/
+**/.vercel/
+**/.next/
+**/coverage/
+**/test-results/
+**/playwright-report/
+04 Codes/dist/
+*.log
+*.pem
+*.key
