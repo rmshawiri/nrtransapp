@@ -31,7 +31,7 @@ class LocalStore {
         request.onsuccess=()=>{
           const previous=request.result;
           if((previous?.revision??null)!==expectedRevision)return fail('Les données ont changé dans un autre onglet. Rechargez avant de réessayer.');
-          next=structuredClone(state);next.revision=(previous?.revision??0)+1;
+          next=structuredClone(state);next.revision=(previous?.revision??0)+1;next.serverVersion=previous?.serverVersion??state.serverVersion??0;
           store.put(next,'main');
           if(fingerprint)tx.objectStore('imports').put(new Date().toISOString(),fingerprint);
           if(queue)tx.objectStore('outbox').add({id:crypto.randomUUID(),createdAt:new Date().toISOString(),localRevision:next.revision,baseVersion:previous?.serverVersion??0,state:next,status:'pending'});
@@ -55,7 +55,15 @@ class LocalStore {
 }
 
 // A failed request or conflict leaves the mutation intact. The server must deduplicate id.
+const flights=new WeakMap();
 export async function synchronize(store,send){
+ if(flights.has(store))return flights.get(store);
+ const work=()=>drain(store,send);
+ const promise=globalThis.navigator?.locks ? navigator.locks.request('nr-sync:'+store.db.name,work) : work();
+ flights.set(store,promise);
+ try{return await promise;}finally{flights.delete(store);}
+}
+async function drain(store,send){
   let sent=0;
   while(true){
     const [operation]=await store.pending();

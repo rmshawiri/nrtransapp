@@ -3,7 +3,7 @@ import {mkdir,writeFile} from 'node:fs/promises';
 import {credentials} from './credentials.mjs';
 import {resolve6} from 'node:dns/promises';
 const c=credentials();
-const raw=c['Direct connection'];
+const raw=c['Session pooler']||c['Direct connection'];
 const connectionString=raw.replace('[YOUR-PASSWORD]',encodeURIComponent(c['Mot de passe']));
 const parsed=new URL(connectionString);
 const addresses=await resolve6(parsed.hostname).catch(()=>[]);
