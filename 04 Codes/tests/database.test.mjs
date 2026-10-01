@@ -14,6 +14,8 @@ test('PostgreSQL : RLS réelle, isolation, lecture seule, RPC et idempotence',as
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;grant usage on schema public,auth to anon,authenticated,service_role;grant execute on function auth.uid() to anon,authenticated,service_role;`);
  await db.exec(await readFile(new URL('../supabase/migrations/20261001151646_platform_foundation.sql',import.meta.url),'utf8'));
  await db.exec(await readFile(new URL('../supabase/migrations/20261001152615_commercial_transactions.sql',import.meta.url),'utf8'));
+ await db.exec('create table auth.sessions(id uuid primary key,user_id uuid references auth.users(id),not_after timestamptz)');
+ await db.exec(await readFile(new URL('../supabase/migrations/20261001221354_authenticated_platform.sql',import.meta.url),'utf8'));
  }
  await db.query('insert into auth.users(id) values($1),($2),($3),($4)',[ownerA,ownerB,viewer,admin]);
  await db.query('insert into nr_organizations(id,owner_id,name) values($1,$2,$3),($4,$5,$6)',[orgA,ownerA,'A',orgB,ownerB,'B']);
@@ -143,6 +145,14 @@ test('PostgreSQL : RLS réelle, isolation, lecture seule, RPC et idempotence',as
   await assert.rejects(()=>rpc('select nr_order_decide($1,$2,false,$3) result',[admin,order.id,'']),/reason_required/);
   assert.equal((await rpc('select nr_order_decide($1,$2,false,$3) result',[admin,order.id,'Justificatif non concordant'])).status,'rejected');
   assert.equal((await db.query('select * from nr_subscriptions where order_id=$1',[order.id])).rows.length,0);
+ });
+ await t.test('snapshot cohérent soumis à RLS et session révoquée refusée',async()=>{
+  const own=(await as(ownerA,()=>db.query('select nr_snapshot($1) snapshot',[orgA]))).rows[0].snapshot;
+  assert.equal(own.organization.version,2);assert.equal(own.records.filter(r=>r.kind==='vehicles').length,2);
+  const limited=(await as(viewer,()=>db.query('select nr_snapshot($1) snapshot',[orgA]))).rows[0].snapshot;
+  assert.equal(limited.records.filter(r=>r.kind==='vehicles').length,1);
+  assert.equal((await as(ownerB,()=>db.query('select nr_snapshot($1) snapshot',[orgA]))).rows[0].snapshot,null);
+  assert.equal(await rpc('select nr_session_active($1,$2) result',[ownerA,crypto.randomUUID()]),false);
  });
  }finally{await db.close();}
 });

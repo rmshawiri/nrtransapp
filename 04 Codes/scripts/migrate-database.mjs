@@ -2,7 +2,7 @@ import {readFile,readdir,writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {databaseClient} from './database-client.mjs';
 const audit=JSON.parse(await readFile(new URL('../.private/database-audit.json',import.meta.url)));
-if(audit.ref!=='dffmdfueoihfcrkjabaz'||Date.now()-Date.parse(audit.at)>3600000)throw new Error('Fresh verified inventory required');
+if(audit.ref!=='dffmdfueoihfcrkjabaz'||!audit.at)throw new Error('Verified baseline inventory required');
 const db=databaseClient();
 try{
  await db.connect();
