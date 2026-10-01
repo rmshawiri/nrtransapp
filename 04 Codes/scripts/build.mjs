@@ -1,0 +1,18 @@
+import {build} from 'vite';
+import {readFile,writeFile,readdir,mkdir} from 'node:fs/promises';
+import {home,header,footer,pricing} from '../src/ui/public.js';
+await build();
+const base=await readFile('dist/index.html','utf8');
+await writeFile('dist/index.html',base.replace('<main class="loading" aria-live="polite">Ouverture de NR-TRANS…</main>',home()));
+await mkdir('dist/tarifs',{recursive:true});
+await writeFile('dist/tarifs/index.html',base.replace('<main class="loading" aria-live="polite">Ouverture de NR-TRANS…</main>',header()+'<main id="pricing-root">'+pricing()+'</main>'+footer()).replace('href="https://nr-trans.morashawiri.com/"','href="https://nr-trans.morashawiri.com/tarifs"'));
+await writeFile('dist/shell.html',base);
+const files=await readdir('dist/assets');
+const assets=['/shell.html','/brand/icon.webp','/brand/logo.webp',...files.map(f=>'/assets/'+f)];
+const cache='nr-trans-v2-'+Date.now();
+await writeFile('dist/sw.js',`const CACHE=${JSON.stringify(cache)},ASSETS=${JSON.stringify(assets)};
+self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS))));
+self.addEventListener('message',e=>{if(e.data==='ACTIVATE_UPDATE')self.skipWaiting();});
+self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('nr-trans-v2-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
+self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(u.origin!==location.origin||e.request.method!=='GET'||u.pathname.startsWith('/api/'))return;if(e.request.mode==='navigate'){e.respondWith(fetch(e.request).catch(()=>caches.match('/shell.html')));return;}if(ASSETS.includes(u.pathname))e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)));});`);
+console.log('Public pages prerendered; PWA shell and versioned assets generated.');

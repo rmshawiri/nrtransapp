@@ -8,9 +8,21 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "audit:services": "node scripts/audit-services.mjs"
+    "audit:services": "node scripts/audit-services.mjs",
+    "dev": "vite",
+    "build": "node scripts/build.mjs",
+    "preview": "vite preview --host 127.0.0.1"
   },
   "devDependencies": {
-    "pg": "8.23.1"
+    "@electric-sql/pglite": "0.5.8",
+    "fake-indexeddb": "6.2.5",
+    "pg": "8.23.1",
+    "vite": "8.3.2"
+  },
+  "dependencies": {
+    "@fontsource/inter": "5.3.0",
+    "@fontsource/outfit": "5.3.0",
+    "@supabase/supabase-js": "2.117.2",
+    "lucide": "1.49.0"
   }
 }
