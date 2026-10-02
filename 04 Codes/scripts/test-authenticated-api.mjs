@@ -32,6 +32,8 @@ try{
  const quote=await call('quote',a.token,{plan:'avance',months:1,code:''});assert.equal(quote.data.total,2500);
  const order=await call('order',a.token,{plan:'avance',months:1,code:'',method:'mvola',idempotencyKey:crypto.randomUUID(),total:1});assert.equal(order.data.total,2500);
  assert.equal((await call('declare-payment',b.token,{orderId:order.data.id,reference:'forbidden'})).status,404);
+ assert.equal((await call('order-detail',b.token,{id:order.data.id})).status,404);
+ const detail=await call('order-detail',a.token,{id:order.data.id});assert.equal(detail.data.order.total,2500);assert.equal(detail.data.method.id,'mvola');
  assert.equal((await call('decision',a.token,{orderId:order.data.id,approve:true})).status,403);
  const uploaded=await call('proof-upload',a.token,{orderId:order.data.id,type:'application/pdf'});assert.equal(uploaded.status,200);
  const upload=await a.client.storage.from('payment-proofs').uploadToSignedUrl(uploaded.data.path,uploaded.data.token,new Blob(['%PDF-1.4\n% NR-TRANS integration fixture\n%%EOF'],{type:'application/pdf'}));assert.equal(upload.error,null);a.proof=uploaded.data.path;

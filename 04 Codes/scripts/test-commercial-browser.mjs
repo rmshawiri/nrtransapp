@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright';
+import {createClient} from '@supabase/supabase-js';
+import {credentials} from './credentials.mjs';
+import {databaseClient} from './database-client.mjs';
+const c=credentials(),origin=process.env.NR_TEST_ORIGIN||'https://nr-trans.morashawiri.com',options={auth:{persistSession:false,autoRefreshToken:false}},service=createClient(new URL(c['API URL']).origin,c['Secret keys'],options),adminAuth=createClient(new URL(c['API URL']).origin,c['Publishable key'],options);
+let userId,browser,org;const db=databaseClient();
+const login=async(page,email,password)=>{await page.goto(origin+'/connexion');await page.locator('[name=email]').fill(email);await page.locator('[name=password]').fill(password);await page.locator('#auth-form button').click();await page.waitForURL('**/client',{timeout:30000});await page.locator('#account-content').waitFor({timeout:30000});};
+try{
+ await db.connect();const email='nr-commerce-'+crypto.randomUUID()+'@example.com',password=crypto.randomUUID()+'Aa!';const created=await service.auth.admin.createUser({email,password,email_confirm:true});assert.equal(created.error,null);userId=created.data.user.id;
+ browser=await chromium.launch({channel:'chrome',headless:true});const clientContext=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true}),adminContext=await browser.newContext({viewport:{width:1440,height:1000}});const page=await clientContext.newPage(),adminPage=await adminContext.newPage();
+ await login(page,email,password);org=(await db.query('select id from nr_organizations where owner_id=$1',[userId])).rows[0].id;
+ await login(adminPage,c.ADMIN_EMAIL,c.ADMIN_PASSWORD);
+ const adminLogin=await adminAuth.auth.signInWithPassword({email:c.ADMIN_EMAIL,password:c.ADMIN_PASSWORD});assert.equal(adminLogin.error,null);
+ const makeOrder=async()=>{await page.goto(origin+'/paiement');await page.locator('[name=method]').selectOption('cash');await page.locator('#quote').click();await page.locator('#quote-result .total').waitFor();await page.locator('#checkout-form .primary').click();await page.waitForURL('**/paiement?order=*');await page.locator('#declare-payment').waitFor();return new URL(page.url()).searchParams.get('order');};
+ const declare=async()=>{await page.locator('[name=reference]').fill('RECETTE-NE-PAS-ENCAISSER');await page.locator('#declare-payment button').click();await page.getByText('Déclaration enregistrée. Notre équipe vérifiera votre paiement.',{exact:true}).waitFor();};
+ const decide=async(id,approve)=>{await adminPage.goto(origin+'/admin');await adminPage.getByRole('button',{name:'Commandes',exact:true}).click();const form=adminPage.locator('[data-decision="'+id+'"]');await form.waitFor();if(!approve)await form.locator('[name=reason]').fill('Refus de recette temporaire');await form.locator('[value="'+(approve?'approve':'reject')+'"]').click();await form.waitFor({state:'detached'});};
+ const first=await makeOrder();await page.reload();await page.locator('#declare-payment').waitFor();await declare();await decide(first,true);await page.reload();await page.getByRole('heading',{name:'Votre abonnement est activé.'}).waitFor();assert.equal(await page.locator('#declare-payment').count(),0);
+ const repeat=await fetch(origin+'/api/platform?action=decision',{method:'POST',headers:{Authorization:'Bearer '+adminLogin.data.session.access_token,'Content-Type':'application/json'},body:JSON.stringify({orderId:first,approve:true})});assert.equal(repeat.status,200);assert.equal((await repeat.json()).replayed,true);assert.equal((await db.query('select count(*)::int n from nr_subscriptions where order_id=$1',[first])).rows[0].n,1);
+ const second=await makeOrder();await declare();await decide(second,false);await page.reload();await page.getByText('Paiement refusé',{exact:true}).waitFor();await declare();await decide(second,true);
+ const periods=(await db.query('select starts_at,ends_at from nr_subscriptions where order_id=any($1::uuid[]) order by starts_at',[[first,second]])).rows;assert.equal(periods.length,2);assert.equal(periods[1].starts_at.toISOString(),periods[0].ends_at.toISOString());
+ await page.goto(origin+'/client');await page.getByRole('button',{name:'Commandes',exact:true}).click();assert.equal(await page.getByRole('link',{name:'Consulter / reprendre'}).count(),2);
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+ console.log('Commercial browser roundtrip passed: mobile client, desktop admin, reload/resume, declaration, approval/replay, rejection/resubmission, renewal preserves remaining term, client history.');
+}catch(e){console.error('Commercial browser verification failed: '+(e instanceof assert.AssertionError?'assertion':e.name));console.error(e.stack?.split('\n').filter(l=>l.includes('test-commercial-browser.mjs')).join('\n'));process.exitCode=1;}
+finally{
+ await browser?.close();await adminAuth.auth.signOut().catch(()=>{});
+ if(userId){try{await db.query('begin');const owned=(await db.query('select id from nr_organizations where owner_id=$1',[userId])).rows.map(x=>x.id);for(const table of ['nr_invitations','nr_subscriptions','nr_payments','nr_orders','nr_reviews','nr_notifications','nr_audit','nr_sync_receipts','nr_member_vehicles','nr_loan_allocations','nr_records','nr_members'])await db.query('delete from '+table+' where org_id=any($1::uuid[])',[owned]);await db.query('delete from nr_organizations where id=any($1::uuid[])',[owned]);await db.query('delete from nr_profiles where id=$1',[userId]);await db.query('commit');await service.auth.admin.deleteUser(userId);}catch{await db.query('rollback').catch(()=>{});console.error('Commercial fixture cleanup requires attention.');process.exitCode=1;}}
+ await db.end();
+}

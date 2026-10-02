@@ -113,6 +113,12 @@ export function createPlatform(env=process.env){
    owner(ctx);requireValue(typeof body.active==='boolean'&&typeof body.allVehicles==='boolean'&&Array.isArray(body.vehicleIds)&&body.vehicleIds.length<=1000);
    await result(service.rpc('nr_member_change',{p_org:org,p_actor:actor,p_user:uuid(body.userId),p_active:body.active,p_all:body.allVehicles,p_vehicles:[...new Set(body.vehicleIds.map(uuid))]}));return {ok:true};
   }
+  if(action==='order-detail'){
+   owner(ctx);const order=await orderFor(ctx,body.id);
+   const method=await result(service.from('nr_payment_methods').select('id,name,status,instructions').eq('id',order.method).single());
+   const payment=await result(service.from('nr_payments').select('reference,proof_path,created_at').eq('order_id',order.id).maybeSingle());
+   return {order,method,payment};
+  }
   if(action==='quote'||action==='order'){
    owner(ctx);requireValue(['avance','vip'].includes(body.plan)&&[1,3,6,12].includes(body.months));
    const args={p_org:org,p_actor:actor,p_plan:body.plan,p_months:body.months,p_code:text(body.code||'',50)};
