@@ -1,3 +1,4 @@
+import {membersPanel} from './ui/members.js';
 import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
 import '@fontsource/inter/600.css';
@@ -53,22 +54,26 @@ function signup(){
   root.innerHTML=authLayout('Votre prochaine étape<br>commence ici.',`<div class="signup-progress"><span>0${step+1} / 04</span><b>${names[step]}</b><progress value="${step+1}" max="4"></progress></div><form id="signup-form">${screens[step]}<div class="error" role="alert"></div><div class="formfoot">${step?'<button type="button" id="previous">Retour</button>':''}<button class="primary">${step===3?'Créer mon compte':'Continuer'}</button></div></form><p>Déjà un compte ? <a href="/connexion">Se connecter</a></p>`);
   document.querySelector('#previous')?.addEventListener('click',()=>{step--;render();});
   if(step===2)document.querySelector('#signup-form').onchange=e=>{const data=new FormData(e.currentTarget);values.plan=data.get('plan');values.months=Number(data.get('months'));document.querySelector('.signup-price').textContent=money(values.plan==='gratuit'?0:price(values.plan,values.months));};
-  document.querySelector('#signup-form').onsubmit=async e=>{e.preventDefault();const form=e.target,data=new FormData(form);if(step<3){for(const [key,value] of data){if(key==='password')password=value;else values[key]=key==='months'?Number(value):value;}step++;render();return;}const button=form.querySelector('.primary');button.disabled=true;try{await settings();if(!config.ready)throw Error('Les inscriptions ne sont pas encore ouvertes. Vous pouvez explorer la démonstration ou contacter MORA Shawiri.');const {error}=await client.auth.signUp({email:values.email,password,options:{emailRedirectTo:location.origin+'/client',data:{display_name:values.name,business_name:values.business,phone:values.phone}}});if(error)throw Error('L’inscription n’a pas abouti. Vérifiez votre adresse ou réessayez.');password='';sessionStorage.setItem('nr-selected-offer',JSON.stringify({plan:values.plan,months:values.months}));root.innerHTML=authLayout('Vérifiez votre messagerie.',`<p>Un lien de confirmation peut vous être envoyé pour finaliser votre inscription. Consultez également les courriers indésirables.</p><a class="button primary" href="/client">Accéder à mon espace</a>`);}catch(error){alertForm(form,error.message);button.disabled=false;}};
+  document.querySelector('#signup-form').onsubmit=async e=>{e.preventDefault();const form=e.target,data=new FormData(form);if(step<3){for(const [key,value] of data){if(key==='password')password=value;else values[key]=key==='months'?Number(value):value;}step++;render();return;}const button=form.querySelector('.primary');button.disabled=true;try{await settings();if(!config.ready)throw Error('Les inscriptions ne sont pas encore ouvertes. Vous pouvez explorer la démonstration ou contacter MORA Shawiri.');const {error}=await client.auth.signUp({email:values.email,password,options:{emailRedirectTo:location.origin+'/client'+(sessionStorage.getItem('nr-invitation')?'?invitation='+encodeURIComponent(sessionStorage.getItem('nr-invitation')):''),data:{display_name:values.name,business_name:values.business,phone:values.phone}}});if(error)throw Error('L’inscription n’a pas abouti. Vérifiez votre adresse ou réessayez.');password='';sessionStorage.setItem('nr-selected-offer',JSON.stringify({plan:values.plan,months:values.months}));root.innerHTML=authLayout('Vérifiez votre messagerie.',`<p>Un lien de confirmation peut vous être envoyé pour finaliser votre inscription. Consultez également les courriers indésirables.</p><a class="button primary" href="/client">Accéder à mon espace</a>`);}catch(error){alertForm(form,error.message);button.disabled=false;}};
  };render();
 }
 
 async function privateContext(){
+ const incoming=new URL(location.href).searchParams.get('invitation');
+ if(incoming&&/^[0-9a-f-]{36}$/i.test(incoming))sessionStorage.setItem('nr-invitation',incoming);
  if(path==='/app'&&!navigator.onLine){const cached=offlineContext();if(cached){session={id:cached.userId};return cached;}}
  await settings();if(!client){location.replace('/connexion');return null;}
  const {data,error}=await client.auth.getUser();if(error||!data.user){location.replace('/connexion');return null;}
  session=data.user;
+ const invitation=sessionStorage.getItem('nr-invitation');
+ if(invitation){await api('accept-invitation',{token:invitation});sessionStorage.removeItem('nr-invitation');history.replaceState(null,'',location.pathname);}
  const context=await api('context');rememberContext(session,context);return context;
 }
 async function workspace(){
  const demo=path==='/demo';
  let context;
  if(demo)context={identity:'demo',demo:true,canWrite:true};
- else {const remote=await privateContext();if(!remote)return;if(!remote.organizationId){location.assign('/admin');return;}if(remote.role==='viewer'){renderViewer(remote);return;}context={...remote,identity:session.id+':'+remote.organizationId,demo:false};}
+ else {const remote=await privateContext();if(!remote)return;if(!remote.organizationId){if(remote.isAdmin)location.assign('/admin');else root.innerHTML=authLayout('Accès désactivé.','<p>Contactez le propriétaire de votre activité.</p><a href="/client">Mon compte</a>');return;}if(remote.role==='viewer'){renderViewer(remote);return;}context={...remote,identity:session.id+':'+remote.organizationId,demo:false};}
  Store.configure(context);
  const embed=new URLSearchParams(location.search).has('embed');
  if(embed)document.body.classList.add('embedded');
@@ -117,6 +122,7 @@ async function account(){
   document.querySelectorAll('[data-account-tab]').forEach(b=>b.classList.toggle('active',b===button));
   const area=document.querySelector('#account-content'),tab=button.textContent;
   if(tab==='Vue d’ensemble'){area.innerHTML=overview();return;}
+  if(tab==='Utilisateurs'&&!admin){if(ctx.role!=='owner'){area.innerHTML='<p>Gestion réservée au propriétaire.</p>';return;}membersPanel(area,{api,esc}).catch(e=>{area.textContent=e.message;});return;}
   if(tab==='Abonnement'){area.innerHTML=`<div id="pricing-root">${pricing()}</div><a class="button primary" href="/paiement">Renouveler ou choisir une offre</a>`;bindPublic();return;}
   if(tab==='Assistance'){area.innerHTML='<section class="panel"><h2>Comment pouvons-nous vous aider ?</h2><p>Contactez l’équipe MORA Shawiri.</p><a class="button primary" href="https://wa.me/2694306306">Ouvrir WhatsApp</a> <a href="mailto:nrtransapp@morashawiri.com">Envoyer un email</a></section>';return;}
   if(tab==='Sécurité'){area.innerHTML='<section class="panel"><h2>Protéger votre compte</h2><a class="button" href="/recuperation">Changer mon mot de passe</a><button id="logout-all">Déconnecter toutes mes sessions</button></section>';document.querySelector('#logout-all').onclick=async()=>{await client.auth.signOut({scope:'global'});location.assign('/connexion');};return;}

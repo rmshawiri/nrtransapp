@@ -46,7 +46,7 @@ export function createPlatform(env=process.env){
   }
   const member=members[0],organizationId=member?.org_id||null;
   let subscription=null;
-  if(organizationId){const rows=await result(service.from('nr_subscriptions').select('*').eq('org_id',organizationId).lte('starts_at',new Date().toISOString()).gt('ends_at',new Date().toISOString()).order('starts_at',{ascending:false}).limit(1));subscription=rows[0]||null;}
+  if(organizationId)subscription=await result(service.rpc('nr_subscription_current',{p_org:organizationId,p_actor:actor}));
   return {userId:actor,organizationId,isAdmin:admin.length>0,role:member?.role||(admin.length?'admin':'inactive'),canWrite:member?.role==='owner'&&!!subscription,subscription:subscription?{plan:subscription.plan_id,startsAt:subscription.starts_at,endsAt:subscription.ends_at}:null};
  }
  async function snapshot(auth,ctx){
@@ -76,7 +76,7 @@ export function createPlatform(env=process.env){
    return {organizationId:await result(service.rpc('nr_invitation_accept',{p_actor:actor,p_token:uuid(body.token)}))};
   }
   const ctx=await context(auth),org=ctx.organizationId;
-  const readActions=['context','client','admin','snapshot'];
+  const readActions=['context','client','admin','snapshot','members'];
   requireValue(readActions.includes(action)?method==='GET':method==='POST','Méthode non autorisée.',405);
   if(action==='context')return {...ctx,initialState:await snapshot(auth,ctx)};
   if(action==='snapshot')return {state:await snapshot(auth,ctx)};
@@ -84,6 +84,12 @@ export function createPlatform(env=process.env){
    owner(ctx);requireValue(body.organizationId===undefined||body.organizationId===org,'Cette synchronisation appartient à une autre activité.',403);const state=validateSync(body);
    const hash=createHash('sha256').update(JSON.stringify(state)).digest('hex');
    return result(service.rpc('nr_sync_apply',{p_org:org,p_actor:actor,p_mutation:body.id,p_hash:hash,p_expected:body.baseVersion,p_state:state}));
+  }
+  if(action==='members'){
+   owner(ctx);
+   const [members,invitations,vehicles,scopes]=await Promise.all([
+    result(service.from('nr_members').select('*').eq('org_id',org)),result(service.from('nr_invitations').select('*').eq('org_id',org).order('created_at',{ascending:false})),result(service.from('nr_records').select('id,payload').eq('org_id',org).eq('kind','vehicles').is('deleted_at',null)),result(service.from('nr_member_vehicles').select('*').eq('org_id',org))]);
+   return {members,invitations,vehicles:vehicles.map(v=>({id:v.id,name:v.payload.name})),scopes};
   }
   if(action==='client'){
    const profile=await result(service.from('nr_profiles').select('*').eq('id',actor).maybeSingle());

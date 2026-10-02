@@ -1,7 +1,7 @@
 import {spawnSync} from 'node:child_process';
 import {credentials} from './credentials.mjs';
 const c=credentials();
-const keys=['Mot de passe','Secret keys','Jeton','Token NR-TRANS','SMTP_PASSWORD'];
+const keys=['Mot de passe','Secret keys','Jeton','Token NR-TRANS','SMTP_PASSWORD','ADMIN_PASSWORD','ADMIN_EMAIL','Email'];
 const secrets=keys.map(k=>c[k]).filter(x=>x?.length>=8);
 const root=new URL('../../',import.meta.url);
 const names=spawnSync('git',['diff','--cached','--name-only','-z'],{cwd:root,encoding:'utf8'}).stdout.split('\0').filter(Boolean);
