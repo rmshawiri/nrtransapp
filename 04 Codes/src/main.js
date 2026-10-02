@@ -10,6 +10,8 @@ import {createClient} from '@supabase/supabase-js';
 import {home,header,footer,pricing,legal,logo,esc,money} from './ui/public.js';
 import {PRICES,price,SITE_URL} from './domain/commercial.js';
 import * as Store from './app-store.js';
+import {rememberContext,offlineContext,forgetContext} from './offline-session.js';
+import * as Core from './domain/core.js';
 
 const root=document.querySelector('#root');
 const path=location.pathname.replace(/\/$/,'')||'/';
@@ -17,9 +19,8 @@ let client,config,session;
 const toast=message=>{const el=document.querySelector('#toast');el.textContent=message;el.style.display='block';setTimeout(()=>el.style.display='none',6000);};
 async function settings(){
  if(config)return config;
- const response=await fetch('/api/config');
- if(!response.ok)throw Error('Le service est momentanément indisponible. Réessayez dans quelques instants.');
- config=await response.json();
+ try{const response=await fetch('/api/config');if(!response.ok)throw Error();config=await response.json();localStorage.setItem('nr-public-config',JSON.stringify(config));}
+ catch{try{config=JSON.parse(localStorage.getItem('nr-public-config'));}catch{}if(!config)throw Error('Connectez cet appareil à Internet pour sa première ouverture.');}
  if(config.supabaseUrl&&config.publishableKey)client=createClient(config.supabaseUrl,config.publishableKey);
  return config;
 }
@@ -57,23 +58,51 @@ function signup(){
 }
 
 async function privateContext(){
+ if(path==='/app'&&!navigator.onLine){const cached=offlineContext();if(cached){session={id:cached.userId};return cached;}}
  await settings();if(!client){location.replace('/connexion');return null;}
  const {data,error}=await client.auth.getUser();if(error||!data.user){location.replace('/connexion');return null;}
  session=data.user;
- return api('context');
+ const context=await api('context');rememberContext(session,context);return context;
 }
 async function workspace(){
  const demo=path==='/demo';
  let context;
  if(demo)context={identity:'demo',demo:true,canWrite:true};
- else {const remote=await privateContext();if(!remote)return;context={...remote,identity:session.id+':'+remote.organizationId,demo:false};}
+ else {const remote=await privateContext();if(!remote)return;if(!remote.organizationId){location.assign('/admin');return;}if(remote.role==='viewer'){renderViewer(remote);return;}context={...remote,identity:session.id+':'+remote.organizationId,demo:false};}
  Store.configure(context);
  const embed=new URLSearchParams(location.search).has('embed');
  if(embed)document.body.classList.add('embedded');
- root.innerHTML=`<div class="app-globalbar"><a href="/">Accueil</a><span>${demo?'Démonstration · Données fictives':'Mon activité'}</span><span id="sync-state">${demo?'Enregistré sur cet appareil':'Synchronisation'}</span><a class="button small" href="${demo?'/inscription':'/client'}">${demo?'Créer mon compte':'Mon espace client'}</a></div><div id="workspace"></div>`;
+ root.innerHTML=`<div class="app-globalbar"><a href="/">Accueil</a><span>${demo?'Démonstration · Données fictives':'Mon activité'}</span><button id="sync-state">${demo?'Enregistré sur cet appareil':'Synchronisation'}</button><button id="recoveries" ${demo?'hidden':''}>Versions conservées</button><a class="button small" href="${demo?'/inscription':'/client'}">${demo?'Créer mon compte':'Mon espace client'}</a></div><div id="workspace"></div><dialog id="sync-conflict"></dialog>`;
  await import('./ui/operations.js');
- const sync=async()=>{const indicator=document.querySelector('#sync-state');if(demo){indicator.textContent='Démonstration locale';return;}if(!navigator.onLine){indicator.textContent='Hors ligne · Données sur cet appareil';return;}try{indicator.textContent='Synchronisation…';const result=await Store.sync(op=>api('sync',op));indicator.textContent=result.conflict?'Conflit · Votre saisie locale est conservée':'Synchronisé';}catch{indicator.textContent='En attente de synchronisation';}};
+ let syncing=false;
+ const resolveConflict=async()=>{
+  const conflict=await Store.conflict();if(!conflict)return;
+  const local=await Store.current(),remote=conflict.remote,dialog=document.querySelector('#sync-conflict');
+  const summary=s=>`${s.days.length} journées · ${s.expenses.length} dépenses · trésorerie ${money(Core.stats(s).balance)}`;
+  dialog.innerHTML=`<h2>Deux versions à comparer</h2><p>Une autre session a modifié cette activité. Vos saisies sont conservées sur cet appareil.</p><p><b>Sur cet appareil</b><br>${esc(summary(local))}</p><p><b>Sur le serveur · version ${remote.serverVersion}</b><br>${esc(summary(remote))}</p><p>Le choix s’applique à toute l’activité. Les deux versions seront archivées sur cet appareil et téléchargeables dans « Versions conservées ».</p><div class="formfoot"><button data-choice="remote">Reprendre la version serveur</button><button class="primary" data-choice="local">Envoyer ma version locale</button><button data-close>Décider plus tard</button></div><p class="error" role="alert"></p>`;
+  if(!dialog.open)dialog.showModal();dialog.querySelector('[data-close]').onclick=()=>dialog.close();
+  dialog.querySelectorAll('[data-choice]').forEach(button=>button.onclick=async()=>{try{await Store.reconcile(remote,{choice:button.dataset.choice,expectedRevision:local.revision});dialog.close();await sync();}catch(e){dialog.querySelector('.error').textContent=e.message;}});
+ };
+ const sync=async()=>{
+  const indicator=document.querySelector('#sync-state');if(demo){indicator.textContent='Démonstration locale';return;}if(syncing)return;
+  if(!navigator.onLine){indicator.textContent='Hors ligne · Saisies conservées';return;}syncing=true;
+  try{indicator.textContent='Synchronisation…';const refreshed=await api('context');if(refreshed.userId!==session.id||refreshed.organizationId!==context.organizationId)throw Error('Le compte connecté a changé. Rechargez avant de synchroniser.');Store.updateContext(refreshed);rememberContext(session,refreshed);
+   const result=await Store.sync(op=>api('sync',op));
+   const {state:remote}=await api('snapshot');await Store.reconcile(remote);
+   if(result.conflict||await Store.conflict()){indicator.textContent='Conflit · Comparer les versions';await resolveConflict();}
+   else indicator.textContent=refreshed.canWrite?'Synchronisé':'Lecture seule · Abonnement expiré';
+  }catch(e){indicator.textContent='En attente · Réessayer';indicator.title=e.message;}finally{syncing=false;}
+ };
+ document.querySelector('#sync-state').onclick=async()=>{if(await Store.conflict())await resolveConflict();else await sync();};
+ document.querySelector('#recoveries').onclick=async()=>{const versions=await Store.recoveries(),dialog=document.querySelector('#sync-conflict');dialog.innerHTML='<h2>Versions conservées</h2><p>Chaque fichier peut être restauré depuis le module Sauvegarde.</p>'+versions.map((v,i)=>`<article class="record-card"><b>${esc(new Date(v.at).toLocaleString('fr-FR'))}</b><button data-version="${i}" data-source="local">Télécharger la version locale</button><button data-version="${i}" data-source="remote">Télécharger la version serveur</button></article>`).join('')+(versions.length?'':'<p>Aucun conflit résolu sur cet appareil.</p>')+'<button data-close>Fermer</button>';dialog.showModal();dialog.querySelector('[data-close]').onclick=()=>dialog.close();dialog.querySelectorAll('[data-version]').forEach(b=>b.onclick=()=>downloadJSON(Core.backup(versions[Number(b.dataset.version)][b.dataset.source]),'nr-trans-recovery-'+b.dataset.source+'.json'));};
  window.addEventListener('nr-data-saved',sync);window.addEventListener('online',sync);window.addEventListener('offline',sync);await sync();
+}
+
+function downloadJSON(data,name){const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function renderViewer(ctx){
+ const s=ctx.initialState;
+ root.innerHTML=accountShell('Votre activité en lecture seule',`<p class="notice">Seuls les véhicules qui vous sont attribués sont affichés. Les financements partagés avec d’autres véhicules sont masqués.</p><div class="cards">${s.vehicles.map(v=>`<article class="card"><h2>${esc(v.name)}</h2><p>${esc(v.plate)}</p><b>${money(s.days.filter(d=>d.vehicleId===v.id).reduce((n,d)=>n+d.actual,0))}</b><p>Versements enregistrés</p></article>`).join('')||'<p>Aucun véhicule attribué.</p>'}</div><section class="panel"><h2>Journées de transport</h2>${s.days.map(d=>`<article class="record-card"><strong>${esc(d.date)}</strong><span>${esc(s.vehicles.find(v=>v.id===d.vehicleId)?.name)}</span><b>${money(d.actual)}</b><p>${esc(d.status)}</p></article>`).join('')||'<p>Aucune journée.</p>'}</section><section class="panel"><h2>Dépenses et entretiens</h2>${[...s.expenses,...s.maintenance].map(e=>`<article class="record-card"><strong>${esc(e.date)}</strong><span>${esc(e.category||e.type)}</span><b>${money(e.amount??e.cost)}</b></article>`).join('')||'<p>Aucune dépense.</p>'}</section>`);
+ document.querySelectorAll('[data-account-tab]').forEach(b=>b.remove());document.querySelector('#logout').onclick=async()=>{forgetContext();await client.auth.signOut();location.assign('/connexion');};
 }
 
 function accountShell(title,content,admin=false){return `<div class="account-layout"><aside><a class="brand" href="/"><img src="/brand/icon.webp" alt="NR-TRANS" width="44" height="44"><span>NR-TRANS</span></a><span class="eyebrow">${admin?'ADMINISTRATION':'MON ESPACE'}</span><nav>${(admin?['Vue d’ensemble','Clients','Commandes','Paiements','Codes promo','Avis','Paramètres','Journal']:['Vue d’ensemble','Abonnement','Commandes','Paiements','Utilisateurs','Avis','Notifications','Profil','Sécurité','Assistance']).map((n,i)=>`<button data-account-tab="${i}" class="${i===0?'active':''}">${n}</button>`).join('')}</nav><a class="button" href="/app">Ouvrir NR-TRANS</a><button id="logout">Se déconnecter</button></aside><main><div class="account-top"><span>${admin?'MORA SHAWIRI / ADMINISTRATION':'NR-TRANS / MON COMPTE'}</span><a href="/app">Accéder à l’application ↗</a></div><h1>${title}</h1><div id="account-content">${content}</div></main></div>`;}
@@ -83,7 +112,7 @@ async function account(){
  const data=await api(admin?'admin':'client');
  const overview=()=>`<p class="sub">${admin?'Suivez l’activité commerciale de NR-TRANS.':'Votre compte, votre abonnement et vos prochaines étapes.'}</p><div class="cards"><article class="card highlight"><span>Abonnement</span><div class="value">${esc(data.subscription?.plan||'Gratuit')}</div><p>${data.subscription?.endsAt?'Expire le '+new Date(data.subscription.endsAt).toLocaleDateString('fr-FR'):'Votre compte'}</p></article><article class="card"><span>Véhicules</span><div class="value">${data.vehicleCount??0}</div><a href="/app">Consulter mon parc</a></article><article class="card"><span>Commandes</span><div class="value">${data.orders?.length??0}</div></article><article class="card"><span>Notifications</span><div class="value">${data.notifications?.length??0}</div></article></div><section class="panel"><h2>Tout est prêt pour votre prochaine journée.</h2><p>Retrouvez vos versements, vos dépenses et vos indicateurs dans l’application.</p><a class="button primary" href="/app">Ouvrir mon tableau de bord</a> <a class="button" href="/paiement">Renouveler mon abonnement</a></section>`;
  root.innerHTML=accountShell(admin?'Tableau de bord commercial':'Bonjour, '+esc(data.profile?.display_name||'bienvenue'),overview(),admin);
- document.querySelector('#logout').onclick=async()=>{Store.closeDB();await client.auth.signOut();location.assign('/connexion');};
+ document.querySelector('#logout').onclick=async()=>{Store.closeDB();forgetContext();await client.auth.signOut();location.assign('/connexion');};
  document.querySelectorAll('[data-account-tab]').forEach(button=>button.onclick=()=>{
   document.querySelectorAll('[data-account-tab]').forEach(b=>b.classList.toggle('active',b===button));
   const area=document.querySelector('#account-content'),tab=button.textContent;
@@ -118,4 +147,10 @@ try{
  else root.innerHTML=authLayout('Cette page est introuvable.','<a class="button primary" href="/">Retour à l’accueil</a>');
  bindPublic();
 }catch(error){root.innerHTML=authLayout('Nous n’avons pas pu ouvrir cet espace.',`<p role="alert">${esc(error.message)}</p><button onclick="location.reload()">Réessayer</button> <a href="/demo">Explorer la démonstration</a>`);}
-if('serviceWorker' in navigator && import.meta.env.PROD)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+if('serviceWorker' in navigator && import.meta.env.PROD){
+ navigator.serviceWorker.register('/sw.js').then(registration=>{
+  const offer=()=>{if(!registration.waiting||document.querySelector('#app-update'))return;const button=document.createElement('button');button.id='app-update';button.className='pwa-update';button.textContent='Nouvelle version disponible · Mettre à jour';button.onclick=async()=>{if(document.querySelector('dialog[open]')){toast('Fermez le formulaire avant la mise à jour.');return;}try{if((await Store.pending()).length){toast('Synchronisez vos saisies avant la mise à jour.');return;}}catch{}navigator.serviceWorker.addEventListener('controllerchange',()=>location.reload(),{once:true});registration.waiting.postMessage('ACTIVATE_UPDATE');};document.body.append(button);};
+  offer();registration.addEventListener('updatefound',()=>registration.installing?.addEventListener('statechange',offer));
+ }).catch(()=>{});
+}
+window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();const button=document.createElement('button');button.className='pwa-install';button.textContent='Installer NR-TRANS';button.onclick=async()=>{await event.prompt();button.remove();};document.body.append(button);});

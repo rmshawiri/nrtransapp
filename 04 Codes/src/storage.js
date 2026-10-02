@@ -3,11 +3,12 @@ import {validateFleet} from './domain/fleet.js';
 export function openStore(identity) {
   if(!identity || !/^[a-zA-Z0-9:_-]+$/.test(identity))throw Error('Identité de stockage invalide.');
   return new Promise((resolve,reject)=>{
-    const request=indexedDB.open(`nr-trans-v2:${identity}`,1);
+    const request=indexedDB.open(`nr-trans-v2:${identity}`,2);
     request.onupgradeneeded=()=>{
-      request.result.createObjectStore('state');
-      request.result.createObjectStore('outbox',{keyPath:'id'});
-      request.result.createObjectStore('imports');
+      if(!request.result.objectStoreNames.contains('state'))request.result.createObjectStore('state');
+      if(!request.result.objectStoreNames.contains('outbox'))request.result.createObjectStore('outbox',{keyPath:'id'});
+      if(!request.result.objectStoreNames.contains('imports'))request.result.createObjectStore('imports');
+      if(!request.result.objectStoreNames.contains('recoveries'))request.result.createObjectStore('recoveries',{keyPath:'id'});
     };
     request.onerror=()=>reject(request.error);
     request.onsuccess=()=>resolve(new LocalStore(request.result));
@@ -47,11 +48,41 @@ class LocalStore {
     const tx=this.db.transaction(['state','outbox'],'readwrite'),outbox=tx.objectStore('outbox');
     outbox.delete(id);
     const stateRequest=tx.objectStore('state').get('main');
-    stateRequest.onsuccess=()=>{if(stateRequest.result)tx.objectStore('state').put({...stateRequest.result,serverVersion},'main');};
-    const remaining=outbox.getAll();
-    remaining.onsuccess=()=>{for(const item of remaining.result)outbox.put({...item,baseVersion:serverVersion});};
+    stateRequest.onsuccess=()=>{
+     const version=Math.max(serverVersion,stateRequest.result?.serverVersion??0);
+     if(stateRequest.result)tx.objectStore('state').put({...stateRequest.result,serverVersion:version},'main');
+     const remaining=outbox.getAll();remaining.onsuccess=()=>{for(const item of remaining.result)outbox.put({...item,baseVersion:version});};
+    };
     tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error('Confirmation locale interrompue.'));
   });}
+  conflict(){return this.get('state','conflict');}
+  recoveries(){return new Promise((resolve,reject)=>{const r=this.db.transaction('recoveries').objectStore('recoveries').getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+  reconcile(remote,{choice=null,expectedRevision=null}={}){
+   validateFleet(remote);if(!Number.isSafeInteger(remote.serverVersion)||remote.serverVersion<0)throw Error('Version serveur invalide.');
+   return new Promise((resolve,reject)=>{
+    const tx=this.db.transaction(['state','outbox','recoveries'],'readwrite'),states=tx.objectStore('state'),outbox=tx.objectStore('outbox');let answer,error;
+    const request=states.get('main');
+    request.onsuccess=()=>{
+     const local=request.result;
+     if(choice&&local?.revision!==expectedRevision){error=Error('Une autre saisie a été enregistrée. Comparez de nouveau les versions.');tx.abort();return;}
+     const pending=outbox.getAll();pending.onsuccess=()=>{
+      if(remote.serverVersion<(local?.serverVersion??0)){answer={changed:false,stale:true};return;}
+      if(!choice&&pending.result.length){
+       if(remote.serverVersion>(local?.serverVersion??0)){states.put({remote,localRevision:local.revision},'conflict');answer={changed:false,conflict:true};}
+       else answer={changed:false,conflict:false};return;
+      }
+      if(!choice&&local&&remote.serverVersion===local.serverVersion){states.delete('conflict');answer={changed:false};return;}
+      if(choice&&!['local','remote'].includes(choice)){error=Error('Choix de résolution invalide.');tx.abort();return;}
+      if(choice){tx.objectStore('recoveries').add({id:crypto.randomUUID(),at:new Date().toISOString(),choice,local,remote});outbox.clear();}
+      const next=structuredClone(choice==='local'?local:remote);next.revision=(local?.revision??0)+1;next.serverVersion=remote.serverVersion;
+      states.put(next,'main');states.delete('conflict');
+      if(choice==='local')outbox.add({id:crypto.randomUUID(),createdAt:new Date().toISOString(),localRevision:next.revision,baseVersion:remote.serverVersion,state:next,status:'pending'});
+      answer={changed:true,conflict:false,state:next};
+     };
+    };
+    tx.oncomplete=()=>resolve(answer);tx.onabort=()=>reject(error||Error('Récupération interrompue. Vos données sont conservées.'));tx.onerror=()=>{};
+   });
+  }
 }
 
 // A failed request or conflict leaves the mutation intact. The server must deduplicate id.

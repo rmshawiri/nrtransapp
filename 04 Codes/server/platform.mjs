@@ -47,7 +47,7 @@ export function createPlatform(env=process.env){
   const member=members[0],organizationId=member?.org_id||null;
   let subscription=null;
   if(organizationId){const rows=await result(service.from('nr_subscriptions').select('*').eq('org_id',organizationId).lte('starts_at',new Date().toISOString()).gt('ends_at',new Date().toISOString()).order('starts_at',{ascending:false}).limit(1));subscription=rows[0]||null;}
-  return {organizationId,isAdmin:admin.length>0,role:member?.role||'admin',canWrite:member?.role==='owner'&&!!subscription,subscription:subscription?{plan:subscription.plan_id,startsAt:subscription.starts_at,endsAt:subscription.ends_at}:null};
+  return {userId:actor,organizationId,isAdmin:admin.length>0,role:member?.role||'admin',canWrite:member?.role==='owner'&&!!subscription,subscription:subscription?{plan:subscription.plan_id,startsAt:subscription.starts_at,endsAt:subscription.ends_at}:null};
  }
  async function snapshot(auth,ctx){
   if(!ctx.organizationId)return null;
