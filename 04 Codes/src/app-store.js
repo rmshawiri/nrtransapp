@@ -23,6 +23,7 @@ export async function save(next,revision,options={}){
 export async function sync(send){return synchronize(store,send);}
 export async function pending(){return store.pending();}
 export function isDemo(){return context?.demo===true;}
+export function canAddVehicle(count){return !!canWrite()&&(context.demo||context.subscription?.plan==='vip'||count<1);}
 export function canWrite(){return context?.demo||context?.canWrite&&Date.parse(context.subscription?.endsAt)>Date.now();}
 export function closeDB(){store?.close();}
 export async function initialize(){return save(Core.blank(),null);}
