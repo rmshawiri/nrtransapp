@@ -25,6 +25,7 @@ try{
  assert.equal((await call('sync',a.token,operation)).data.version,1);
  assert.equal((await call('sync',a.token,operation)).data.replayed,true);
  assert.equal((await call('sync',a.token,{...operation,id:crypto.randomUUID()})).data.conflict,true);
+ assert.equal((await call('sync',b.token,{...operation,organizationId:orgs[0]})).status,403);
  const forbidden=await b.client.rpc('nr_snapshot',{p_org:orgs[0]});assert.equal(forbidden.data,null);
  assert.equal((await call('admin',a.token)).status,403);
  const quote=await call('quote',a.token,{plan:'avance',months:1,code:''});assert.equal(quote.data.total,2500);
@@ -38,6 +39,12 @@ try{
  assert.equal((await call('profile',a.token,{name:'Recette NR-TRANS',phone:''})).status,200);
  assert.equal((await call('review',a.token,{rating:5,comment:'Avis de recette temporaire.'})).status,200);
  assert.equal((await call('client',a.token)).data.profile.display_name,'Recette NR-TRANS');
+ const rights=databaseClient();try{await rights.connect();await rights.query('begin');await rights.query('update nr_members set active=false where org_id=$1 and user_id=$2',[orgs[1],b.id]);await rights.query("insert into nr_members values($1,$2,'viewer',false,true)",[orgs[0],b.id]);await rights.query('insert into nr_member_vehicles values($1,$2,$3)',[orgs[0],b.id,state.vehicles[0].id]);await rights.query('commit');}finally{await rights.end();}
+ await b.client.auth.updateUser({data:{role:'owner',isAdmin:true,organizationId:orgs[0]}});
+ assert.equal((await call('context',b.token)).data.role,'viewer');
+ assert.equal((await call('sync',b.token,{...operation,organizationId:orgs[0],canWrite:true,role:'owner'})).status,403);
+ assert.equal((await call('admin',b.token)).status,403);
+ assert.equal((await call('snapshot',a.token)).data.state.serverVersion,1);
  const oldToken=a.token;await a.client.auth.signOut({scope:'global'});assert.equal((await call('context',oldToken)).status,401);
  console.log('Authenticated HTTP integration passed: Auth login, real sessions, organizations, sync/replay/conflict, RLS snapshot, server pricing, private proof, role checks, revoked session.');
 }catch(e){console.log(JSON.stringify({test:'authenticated-api',error:e.code||e.name,message:e instanceof assert.AssertionError?'Assertion failed at '+e.stack.split('\n').find(x=>x.includes('test-authenticated-api')):e.message}));process.exitCode=1;}

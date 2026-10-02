@@ -13,6 +13,13 @@ if(process.argv[2]==='create'){
  await writeFile(file,JSON.stringify({id:data.user.id,token:login.data.session.access_token}),{mode:0o600});
  await writeFile(statefile,JSON.stringify({cookies:[],origins:[{origin:'http://127.0.0.1:4173',localStorage:[{name:'sb-dffmdfueoihfcrkjabaz-auth-token',value:JSON.stringify(login.data.session)}]}]}),{mode:0o600});
  console.log('Temporary browser fixture ready. Private state saved without displaying credentials.');
+}else if(process.argv[2]==='resume'){
+ const fixture=JSON.parse(await readFile(file));const existing=await admin.auth.admin.getUserById(fixture.id);if(existing.error||!existing.data.user.email.startsWith('nr-trans-browser-'))throw new Error('Unexpected fixture');
+ const link=await admin.auth.admin.generateLink({type:'magiclink',email:existing.data.user.email});if(link.error)throw new Error('Fixture session renewal failed');
+ const client=createClient(base,c['Publishable key'],options),login=await client.auth.verifyOtp({type:'magiclink',token_hash:link.data.properties.hashed_token});if(login.error)throw new Error('Fixture login failed');
+ await writeFile(file,JSON.stringify({id:fixture.id,token:login.data.session.access_token}),{mode:0o600});
+ await writeFile(statefile,JSON.stringify({cookies:[],origins:[{origin:'http://127.0.0.1:4173',localStorage:[{name:'sb-dffmdfueoihfcrkjabaz-auth-token',value:JSON.stringify(login.data.session)}]}]}),{mode:0o600});
+ console.log('Existing test account resumed; no business record created.');
 }else if(process.argv[2]==='verify-offline'){
  const fixture=JSON.parse(await readFile(file)),db=databaseClient();try{await db.connect();const r=(await db.query("select count(*)::int n,sum((r.payload->>'actual')::numeric)::int total from nr_records r join nr_organizations o on o.id=r.org_id where o.owner_id=$1 and r.kind='days' and r.deleted_at is null",[fixture.id])).rows[0];if(r.n!==1||r.total!==4500)throw new Error('Offline mutation not synchronized exactly once');console.log('Offline browser entry verified in remote PostgreSQL: exactly one day, 4500 KMF.');}finally{await db.end();}
 }else if(process.argv[2]==='cleanup'){

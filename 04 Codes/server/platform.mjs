@@ -76,7 +76,7 @@ export function createPlatform(env=process.env){
   if(action==='context')return {...ctx,initialState:await snapshot(auth,ctx)};
   if(action==='snapshot')return {state:await snapshot(auth,ctx)};
   if(action==='sync'){
-   owner(ctx);const state=validateSync(body);
+   owner(ctx);requireValue(body.organizationId===undefined||body.organizationId===org,'Cette synchronisation appartient à une autre activité.',403);const state=validateSync(body);
    const hash=createHash('sha256').update(JSON.stringify(state)).digest('hex');
    return result(service.rpc('nr_sync_apply',{p_org:org,p_actor:actor,p_mutation:body.id,p_hash:hash,p_expected:body.baseVersion,p_state:state}));
   }
