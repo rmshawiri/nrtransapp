@@ -1,0 +1,11 @@
+import {readFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {credentials} from './credentials.mjs';
+const c=credentials(),root=new URL('../../',import.meta.url),team='team_lPHH5ooxAkUggHii1qWzCxNV';
+const git=args=>{const r=spawnSync('git',args,{cwd:root,encoding:'utf8'});if(r.status)throw Error('Git command failed');return r.stdout.trim();};
+if(git(['status','--porcelain']))throw Error('Commit changes before deployment');
+const sha=git(['rev-parse','HEAD']);
+const names=git(['ls-tree','-r','--name-only',sha,'04 Codes']).split('\n').filter(n=>/^04 Codes\/(src\/|api\/|server\/|public\/|scripts\/build.mjs$|package(-lock)?\.json$|vite.config.js$|vercel.json$|index.html$)/.test(n));
+const files=names.map(name=>({file:name.slice('04 Codes/'.length),data:readFileSync(new URL(name,root)).toString('base64'),encoding:'base64'}));
+const r=await fetch('https://api.vercel.com/v13/deployments?teamId='+team,{method:'POST',headers:{Authorization:'Bearer '+c['Token NR-TRANS'],'Content-Type':'application/json'},body:JSON.stringify({name:'nr-trans',project:'prj_2XEgpNrpUhShJBXlawx0GR4U5q3d',target:'production',files,projectSettings:{framework:'vite',rootDirectory:null,buildCommand:'npm run build',installCommand:'npm ci',outputDirectory:'dist'},meta:{gitCommitSha:sha}})});
+const b=await r.json();console.log(JSON.stringify({status:r.status,id:b.id,url:b.url,state:b.readyState,commit:sha,error:b.error?.code}));if(!r.ok)process.exitCode=1;
