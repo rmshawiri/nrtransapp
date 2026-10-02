@@ -9,7 +9,7 @@ const requireValue=(ok,message='Données invalides.',status=400)=>{if(!ok)throw 
 const text=(value,max=160)=>{requireValue(typeof value==='string'&&value.trim().length<=max);return value.trim();};
 const uuid=value=>{requireValue(typeof value==='string'&&uuidPattern.test(value));return value;};
 const options={auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}};
-const messages={access_denied:'Accès refusé.',subscription_expired:'Votre abonnement a expiré. Vos données restent consultables.',upgrade_required:'Cette formule autorise un seul véhicule. Choisissez VIP pour agrandir votre parc.',invalid_promotion:'Code promotionnel invalide ou expiré.',promotion_not_applicable:'Ce code ne s’applique pas à cette offre.',promotion_limit:'Ce code a atteint sa limite d’utilisation.',payment_method_unavailable:'Ce moyen de paiement est indisponible.',plan_change_policy_required:'Contactez MORA Shawiri pour organiser votre changement de formule.',idempotency_key_reused:'Cette demande a déjà été utilisée avec un contenu différent.',invalid_transition:'Le statut de cette commande ne permet plus cette action.',reason_required:'Indiquez le motif du refus.'};
+const messages={secondary_user_policy_required:'Le nombre de lecteurs doit être configuré par l’administrateur commercial.',secondary_user_limit:'La limite de lecteurs de votre formule est atteinte.',invitation_invalid:'Cette invitation est invalide, expirée ou annulée.',invitation_email_mismatch:'Connectez-vous avec l’adresse confirmée destinataire de cette invitation.',account_already_attached:'Ce compte est déjà rattaché à une autre activité.',invalid_vehicle_scope:'Un véhicule sélectionné est indisponible.',member_missing:'Cet utilisateur secondaire est introuvable.',invalid_email:'Indiquez une adresse e-mail valide.',access_denied:'Accès refusé.',subscription_expired:'Votre abonnement a expiré. Vos données restent consultables.',upgrade_required:'Cette formule autorise un seul véhicule. Choisissez VIP pour agrandir votre parc.',invalid_promotion:'Code promotionnel invalide ou expiré.',promotion_not_applicable:'Ce code ne s’applique pas à cette offre.',promotion_limit:'Ce code a atteint sa limite d’utilisation.',payment_method_unavailable:'Ce moyen de paiement est indisponible.',plan_change_policy_required:'Contactez MORA Shawiri pour organiser votre changement de formule.',idempotency_key_reused:'Cette demande a déjà été utilisée avec un contenu différent.',invalid_transition:'Le statut de cette commande ne permet plus cette action.',reason_required:'Indiquez le motif du refus.'};
 async function result(request){const {data,error}=await request;if(error){const message=messages[error.message];throw new HttpError(message?409:500,message||'L’opération n’a pas abouti. Réessayez dans quelques instants.');}return data;}
 
 export function publicConfig(env=process.env){return {supabaseUrl:env.SUPABASE_URL||'',publishableKey:env.SUPABASE_PUBLISHABLE_KEY||'',ready:!!(env.SUPABASE_URL&&env.SUPABASE_PUBLISHABLE_KEY&&env.SUPABASE_SECRET_KEY)};}
@@ -47,7 +47,7 @@ export function createPlatform(env=process.env){
   const member=members[0],organizationId=member?.org_id||null;
   let subscription=null;
   if(organizationId){const rows=await result(service.from('nr_subscriptions').select('*').eq('org_id',organizationId).lte('starts_at',new Date().toISOString()).gt('ends_at',new Date().toISOString()).order('starts_at',{ascending:false}).limit(1));subscription=rows[0]||null;}
-  return {userId:actor,organizationId,isAdmin:admin.length>0,role:member?.role||'admin',canWrite:member?.role==='owner'&&!!subscription,subscription:subscription?{plan:subscription.plan_id,startsAt:subscription.starts_at,endsAt:subscription.ends_at}:null};
+  return {userId:actor,organizationId,isAdmin:admin.length>0,role:member?.role||(admin.length?'admin':'inactive'),canWrite:member?.role==='owner'&&!!subscription,subscription:subscription?{plan:subscription.plan_id,startsAt:subscription.starts_at,endsAt:subscription.ends_at}:null};
  }
  async function snapshot(auth,ctx){
   if(!ctx.organizationId)return null;
@@ -70,7 +70,12 @@ export function createPlatform(env=process.env){
  async function orderFor(ctx,id){const order=await result(service.from('nr_orders').select('*').eq('id',uuid(id)).maybeSingle());requireValue(order&&(ctx.isAdmin||order.org_id===ctx.organizationId&&ctx.role==='owner'),'Commande introuvable.',404);return order;}
 
  return async function platform({action,token,body={},method='GET'}){
-  const auth=await authenticate(token),ctx=await context(auth),actor=auth.user.id,org=ctx.organizationId;
+  const auth=await authenticate(token),actor=auth.user.id;
+  if(action==='accept-invitation'){
+   requireValue(method==='POST','Méthode non autorisée.',405);
+   return {organizationId:await result(service.rpc('nr_invitation_accept',{p_actor:actor,p_token:uuid(body.token)}))};
+  }
+  const ctx=await context(auth),org=ctx.organizationId;
   const readActions=['context','client','admin','snapshot'];
   requireValue(readActions.includes(action)?method==='GET':method==='POST','Méthode non autorisée.',405);
   if(action==='context')return {...ctx,initialState:await snapshot(auth,ctx)};
@@ -90,6 +95,17 @@ export function createPlatform(env=process.env){
   if(action==='admin'){
    administrator(ctx);const fields={clients:['nr_organizations','id,name,created_at'],orders:['nr_orders','*'],payments:['nr_payments','*'],promotions:['nr_promotions','*'],reviews:['nr_reviews','*'],audit:['nr_audit','*'],plans:['nr_plans','*'],settings:['nr_commercial_settings','*']};
    return Object.fromEntries(await Promise.all(Object.entries(fields).map(async([key,[table,columns]])=>[key,await result(service.from(table).select(columns).limit(1000))])));
+  }
+  if(action==='invite'){
+   owner(ctx);requireValue(typeof body.allVehicles==='boolean'&&Array.isArray(body.vehicleIds)&&body.vehicleIds.length<=1000);
+   return result(service.rpc('nr_invitation_create',{p_org:org,p_actor:actor,p_email:text(body.email,254),p_all:body.allVehicles,p_vehicles:[...new Set(body.vehicleIds.map(uuid))]}));
+  }
+  if(action==='cancel-invitation'){
+   owner(ctx);await result(service.rpc('nr_invitation_cancel',{p_org:org,p_actor:actor,p_invitation:uuid(body.id)}));return {ok:true};
+  }
+  if(action==='member-access'){
+   owner(ctx);requireValue(typeof body.active==='boolean'&&typeof body.allVehicles==='boolean'&&Array.isArray(body.vehicleIds)&&body.vehicleIds.length<=1000);
+   await result(service.rpc('nr_member_change',{p_org:org,p_actor:actor,p_user:uuid(body.userId),p_active:body.active,p_all:body.allVehicles,p_vehicles:[...new Set(body.vehicleIds.map(uuid))]}));return {ok:true};
   }
   if(action==='quote'||action==='order'){
    owner(ctx);requireValue(['avance','vip'].includes(body.plan)&&[1,3,6,12].includes(body.months));
