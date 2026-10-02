@@ -1,3 +1,4 @@
+import {notificationsPanel} from './ui/notifications.js';
 import {orderRequest,clearOrderRequest} from './order-request.js';
 import {paymentDetail,orderStatus} from './ui/payment-detail.js';
 import {commercialPanel} from './ui/commercial-admin.js';
@@ -115,7 +116,7 @@ function renderViewer(ctx){
  document.querySelectorAll('[data-account-tab]').forEach(b=>b.remove());document.querySelector('#logout').onclick=async()=>{forgetContext();await client.auth.signOut();location.assign('/connexion');};
 }
 
-function accountShell(title,content,admin=false){return `<div class="account-layout"><aside><a class="brand" href="/"><img src="/brand/icon.webp" alt="NR-TRANS" width="44" height="44"><span>NR-TRANS</span></a><span class="eyebrow">${admin?'ADMINISTRATION':'MON ESPACE'}</span><nav>${(admin?['Vue d’ensemble','Clients','Commandes','Paiements','Codes promo','Avis','Paramètres','Journal']:['Vue d’ensemble','Abonnement','Commandes','Paiements','Utilisateurs','Avis','Notifications','Profil','Sécurité','Assistance']).map((n,i)=>`<button data-account-tab="${i}" class="${i===0?'active':''}">${n}</button>`).join('')}</nav><a class="button" href="/app">Ouvrir NR-TRANS</a><button id="logout">Se déconnecter</button></aside><main><div class="account-top"><span>${admin?'MORA SHAWIRI / ADMINISTRATION':'NR-TRANS / MON COMPTE'}</span><a href="/app">Accéder à l’application ↗</a></div><h1>${title}</h1><div id="account-content">${content}</div></main></div>`;}
+function accountShell(title,content,admin=false){return `<div class="account-layout"><aside><a class="brand" href="/"><img src="/brand/icon.webp" alt="NR-TRANS" width="44" height="44"><span>NR-TRANS</span></a><span class="eyebrow">${admin?'ADMINISTRATION':'MON ESPACE'}</span><nav>${(admin?['Vue d’ensemble','Clients','Commandes','Paiements','Codes promo','Avis','Notifications','Paramètres','Journal']:['Vue d’ensemble','Abonnement','Commandes','Paiements','Utilisateurs','Avis','Notifications','Profil','Sécurité','Assistance']).map((n,i)=>`<button data-account-tab="${i}" class="${i===0?'active':''}">${n}</button>`).join('')}</nav><a class="button" href="/app">Ouvrir NR-TRANS</a><button id="logout">Se déconnecter</button></aside><main><div class="account-top"><span>${admin?'MORA SHAWIRI / ADMINISTRATION':'NR-TRANS / MON COMPTE'}</span><a href="/app">Accéder à l’application ↗</a></div><h1>${title}</h1><div id="account-content">${content}</div></main></div>`;}
 async function account(){
  const admin=path==='/admin',ctx=await privateContext();if(!ctx)return;
  if(admin&&!ctx.isAdmin){root.innerHTML=authLayout('Accès réservé.','<p>Votre compte ne dispose pas des droits d’administration.</p><a href="/client">Retour à mon espace</a>');return;}
@@ -127,6 +128,7 @@ async function account(){
   document.querySelectorAll('[data-account-tab]').forEach(b=>b.classList.toggle('active',b===button));
   const area=document.querySelector('#account-content'),tab=button.textContent;
   if(admin&&['Paramètres','Codes promo','Commandes','Paiements','Avis'].includes(tab)){commercialPanel(area,tab,{api,esc,money}).catch(e=>{area.textContent=e.message;});return;}
+  if(tab==='Notifications'){notificationsPanel(area,{admin,api,esc}).catch(e=>{area.textContent=e.message;});return;}
   if(tab==='Vue d’ensemble'){area.innerHTML=overview();return;}
   if(tab==='Utilisateurs'&&!admin){if(ctx.role!=='owner'){area.innerHTML='<p>Gestion réservée au propriétaire.</p>';return;}membersPanel(area,{api,esc}).catch(e=>{area.textContent=e.message;});return;}
   if(tab==='Abonnement'){area.innerHTML=`<section class="panel"><h2>Historique de mes abonnements</h2>${(data.subscriptions||[]).map(s=>`<article class="record-card"><strong>${esc(s.plan_id)}</strong><p>Du ${new Date(s.starts_at).toLocaleDateString('fr-FR')} au ${new Date(s.ends_at).toLocaleDateString('fr-FR')}</p><span>${Date.parse(s.starts_at)>Date.now()?'À venir':Date.parse(s.ends_at)>Date.now()?'En cours':'Terminé'}</span></article>`).join('')||'<p>Aucun abonnement enregistré.</p>'}</section><div id="pricing-root">${pricing()}</div><a class="button primary" href="/paiement">Renouveler ou choisir une offre</a>`;bindPublic();return;}

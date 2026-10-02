@@ -28,7 +28,7 @@ try{
  assert.equal((await call('sync',b.token,{...operation,organizationId:orgs[0]})).status,403);
  const forbidden=await b.client.rpc('nr_snapshot',{p_org:orgs[0]});assert.equal(forbidden.data,null);
  assert.equal((await call('admin',a.token)).status,403);
- for(const action of ['commercial-settings','promotion','moderate-review'])assert.equal((await call(action,a.token,{})).status,403);
+ for(const action of ['commercial-settings','promotion','moderate-review','send-notification'])assert.equal((await call(action,a.token,{})).status,403);
  const quote=await call('quote',a.token,{plan:'avance',months:1,code:''});assert.equal(quote.data.total,2500);
  const order=await call('order',a.token,{plan:'avance',months:1,code:'',method:'mvola',idempotencyKey:crypto.randomUUID(),total:1});assert.equal(order.data.total,2500);
  assert.equal((await call('declare-payment',b.token,{orderId:order.data.id,reference:'forbidden'})).status,404);
@@ -42,6 +42,16 @@ try{
  assert.equal((await call('profile',a.token,{name:'Recette NR-TRANS',phone:''})).status,200);
  assert.equal((await call('review',a.token,{rating:5,comment:'Avis de recette temporaire.'})).status,200);
  assert.equal((await call('client',a.token)).data.profile.display_name,'Recette NR-TRANS');
+ const commercialAdmin=createClient(base,c['Publishable key'],options);
+ try{
+ const login=await commercialAdmin.auth.signInWithPassword({email:c.ADMIN_EMAIL,password:c.ADMIN_PASSWORD});assert.equal(login.error,null);
+ const notice={organizationId:orgs[0],id:crypto.randomUUID(),title:'Recette temporaire',message:'Notification interne de test'};
+ assert.equal((await call('send-notification',login.data.session.access_token,notice)).status,200);
+ assert.equal((await call('send-notification',login.data.session.access_token,notice)).status,200);
+ assert.equal((await call('read-notification',b.token,{id:notice.id})).status,403);
+ assert.equal((await call('read-notification',a.token,{id:notice.id})).status,200);
+ const notices=(await call('client',a.token)).data.notifications.filter(n=>n.id===notice.id);assert.equal(notices.length,1);assert.ok(notices[0].read_at);
+ }finally{await commercialAdmin.auth.signOut({scope:'local'});}
  const rights=databaseClient();try{await rights.connect();await rights.query('begin');await rights.query('update nr_members set active=false where org_id=$1 and user_id=$2',[orgs[1],b.id]);await rights.query("insert into nr_members values($1,$2,'viewer',false,true)",[orgs[0],b.id]);await rights.query('insert into nr_member_vehicles values($1,$2,$3)',[orgs[0],b.id,state.vehicles[0].id]);await rights.query('commit');}finally{await rights.end();}
  await b.client.auth.updateUser({data:{role:'owner',isAdmin:true,organizationId:orgs[0]}});
  assert.equal((await call('context',b.token)).data.role,'viewer');

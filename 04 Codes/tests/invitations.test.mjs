@@ -72,5 +72,14 @@ test('Invitations : capacité explicite, identité vérifiée, révocation et is
  await rpc('select nr_review_moderate($1,$2,$3)',[admin,review,'approved']);
  assert.equal((await db.query('select status from nr_reviews where id=$1',[review])).rows[0].status,'approved');
  });
+ await t.test('notifications : envoi admin idempotent et lecture propriétaire isolée',async()=>{
+ const id=crypto.randomUUID(),args=[admin,org,id,'Information','Message de test'];
+ await assert.rejects(()=>rpc('select nr_notification_send($1,$2,$3,$4,$5)',[reader,...args.slice(1)]),/access_denied/);
+ await rpc('select nr_notification_send($1,$2,$3,$4,$5)',args);await rpc('select nr_notification_send($1,$2,$3,$4,$5)',args);
+ assert.equal((await db.query('select count(*)::int n from nr_audit where entity_id=$1',[id])).rows[0].n,1);
+ await assert.rejects(()=>rpc('select nr_notification_read($1,$2)',[other,id]),/access_denied/);
+ await assert.rejects(()=>rpc('select nr_notification_read($1,$2)',[reader,id]),/access_denied/);
+ await rpc('select nr_notification_read($1,$2)',[owner,id]);assert.ok((await db.query('select read_at from nr_notifications where id=$1',[id])).rows[0].read_at);
+ });
  }finally{await db.close();}
 });

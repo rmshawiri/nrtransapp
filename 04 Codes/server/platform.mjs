@@ -10,7 +10,7 @@ const text=(value,max=160)=>{requireValue(typeof value==='string'&&value.trim().
 const uuid=value=>{requireValue(typeof value==='string'&&uuidPattern.test(value));return value;};
 const options={auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}};
 const messages={secondary_user_policy_required:'Le nombre de lecteurs doit être configuré par l’administrateur commercial.',secondary_user_limit:'La limite de lecteurs de votre formule est atteinte.',invitation_invalid:'Cette invitation est invalide, expirée ou annulée.',invitation_email_mismatch:'Connectez-vous avec l’adresse confirmée destinataire de cette invitation.',account_already_attached:'Ce compte est déjà rattaché à une autre activité.',invalid_vehicle_scope:'Un véhicule sélectionné est indisponible.',member_missing:'Cet utilisateur secondaire est introuvable.',invalid_email:'Indiquez une adresse e-mail valide.',access_denied:'Accès refusé.',subscription_expired:'Votre abonnement a expiré. Vos données restent consultables.',upgrade_required:'Cette formule autorise un seul véhicule. Choisissez VIP pour agrandir votre parc.',invalid_promotion:'Code promotionnel invalide ou expiré.',promotion_not_applicable:'Ce code ne s’applique pas à cette offre.',promotion_limit:'Ce code a atteint sa limite d’utilisation.',payment_method_unavailable:'Ce moyen de paiement est indisponible.',plan_change_policy_required:'Contactez MORA Shawiri pour organiser votre changement de formule.',idempotency_key_reused:'Cette demande a déjà été utilisée avec un contenu différent.',invalid_transition:'Le statut de cette commande ne permet plus cette action.',reason_required:'Indiquez le motif du refus.'};
-async function result(request){const {data,error}=await request;if(error){const message=messages[error.message];throw new HttpError(message?409:500,message||'L’opération n’a pas abouti. Réessayez dans quelques instants.');}return data;}
+async function result(request){const {data,error}=await request;if(error){const message=messages[error.message];throw new HttpError(error.message==='access_denied'?403:message?409:500,message||'L’opération n’a pas abouti. Réessayez dans quelques instants.');}return data;}
 
 export function publicConfig(env=process.env){return {supabaseUrl:env.SUPABASE_URL||'',publishableKey:env.SUPABASE_PUBLISHABLE_KEY||'',ready:!!(env.SUPABASE_URL&&env.SUPABASE_PUBLISHABLE_KEY&&env.SUPABASE_SECRET_KEY)};}
 function stableId(org,label){const h=createHash('sha256').update(org+':'+label).digest('hex');return `${h.slice(0,8)}-${h.slice(8,12)}-5${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20,32)}`;}
@@ -143,6 +143,12 @@ export function createPlatform(env=process.env){
   if(action==='proof-read'){
    const order=await orderFor(ctx,body.orderId);const payment=await result(service.from('nr_payments').select('proof_path').eq('order_id',order.id).maybeSingle());requireValue(payment?.proof_path,'Aucun justificatif.',404);
    const signed=await result(service.storage.from('payment-proofs').createSignedUrl(payment.proof_path,60));return {url:signed.signedUrl};
+  }
+  if(action==='send-notification'){
+   administrator(ctx);const title=text(body.title,160),message=text(body.message,4000);requireValue(title&&message);await result(service.rpc('nr_notification_send',{p_actor:actor,p_org:uuid(body.organizationId),p_id:uuid(body.id),p_title:title,p_message:message}));return {ok:true};
+  }
+  if(action==='read-notification'){
+   owner(ctx);await result(service.rpc('nr_notification_read',{p_actor:actor,p_id:uuid(body.id)}));return {ok:true};
   }
   if(action==='commercial-settings'){
    administrator(ctx);requireValue(Array.isArray(body.plans)&&body.plans.length<=3);
