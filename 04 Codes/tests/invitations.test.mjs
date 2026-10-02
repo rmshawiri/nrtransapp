@@ -62,5 +62,15 @@ test('Invitations : capacité explicite, identité vérifiée, révocation et is
  try{assert.equal((await db.query('select id from nr_records')).rows.length,0);}finally{await db.exec('reset role');}
  assert.equal((await db.query('select count(*)::int n from nr_organizations')).rows[0].n,1);
  });
+ await t.test('administration : promotion et modération réservées au rôle base',async()=>{
+ const promo={name:'Temporary verification',code:'TEST'+crypto.randomUUID().replaceAll('-',''),type:'percent',value:100,plans:[],months:[]};
+ await assert.rejects(()=>rpc('select nr_promotion_save($1,$2)',[reader,promo]),/access_denied/);
+ const id=await rpc('select nr_promotion_save($1,$2) result',[admin,promo]);
+ assert.equal((await db.query('select value::int value from nr_promotions where id=$1',[id])).rows[0].value,100);
+ const review=(await db.query("insert into nr_reviews(org_id,author_name,rating,comment) values($1,'Test',5,'Temporary test') returning id",[org])).rows[0].id;
+ await assert.rejects(()=>rpc('select nr_review_moderate($1,$2,$3)',[owner,review,'approved']),/access_denied/);
+ await rpc('select nr_review_moderate($1,$2,$3)',[admin,review,'approved']);
+ assert.equal((await db.query('select status from nr_reviews where id=$1',[review])).rows[0].status,'approved');
+ });
  }finally{await db.close();}
 });

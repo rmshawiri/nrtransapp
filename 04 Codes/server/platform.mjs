@@ -99,7 +99,7 @@ export function createPlatform(env=process.env){
    return {profile:profile||{display_name:auth.user.user_metadata?.display_name||''},subscription:ctx.subscription,subscriptions,orders,payments,members,notifications,vehicleCount:vehicles.length};
   }
   if(action==='admin'){
-   administrator(ctx);const fields={clients:['nr_organizations','id,name,created_at'],orders:['nr_orders','*'],payments:['nr_payments','*'],promotions:['nr_promotions','*'],reviews:['nr_reviews','*'],audit:['nr_audit','*'],plans:['nr_plans','*'],settings:['nr_commercial_settings','*']};
+   administrator(ctx);const fields={clients:['nr_organizations','id,name,created_at'],orders:['nr_orders','*'],payments:['nr_payments','*'],promotions:['nr_promotions','*'],reviews:['nr_reviews','*'],audit:['nr_audit','*'],plans:['nr_plans','*'],settings:['nr_commercial_settings','*'],subscriptions:['nr_subscriptions','*'],methods:['nr_payment_methods','*'],members:['nr_members','*'],notifications:['nr_notifications','*']};
    return Object.fromEntries(await Promise.all(Object.entries(fields).map(async([key,[table,columns]])=>[key,await result(service.from(table).select(columns).limit(1000))])));
   }
   if(action==='invite'){
@@ -137,6 +137,19 @@ export function createPlatform(env=process.env){
   if(action==='proof-read'){
    const order=await orderFor(ctx,body.orderId);const payment=await result(service.from('nr_payments').select('proof_path').eq('order_id',order.id).maybeSingle());requireValue(payment?.proof_path,'Aucun justificatif.',404);
    const signed=await result(service.storage.from('payment-proofs').createSignedUrl(payment.proof_path,60));return {url:signed.signedUrl};
+  }
+  if(action==='commercial-settings'){
+   administrator(ctx);requireValue(Array.isArray(body.plans)&&body.plans.length<=3);
+   const plans=body.plans.map(p=>{requireValue(['gratuit','avance','vip'].includes(p.id)&&typeof p.unlimited==='boolean'&&(p.limit===null||Number.isInteger(p.limit)&&p.limit>=0&&p.limit<=10000));return {id:p.id,unlimited:p.unlimited,limit:p.limit};});
+   requireValue(body.planChange===null||body.planChange==='at_expiry');await result(service.rpc('nr_admin_configure',{p_actor:actor,p_data:{plans,planChange:body.planChange}}));return {ok:true};
+  }
+  if(action==='moderate-review'){
+   administrator(ctx);requireValue(['approved','rejected','hidden'].includes(body.status));await result(service.rpc('nr_review_moderate',{p_actor:actor,p_review:uuid(body.id),p_status:body.status}));return {ok:true};
+  }
+  if(action==='promotion'){
+   administrator(ctx);requireValue(['fixed','percent'].includes(body.type)&&Number.isFinite(body.value)&&body.value>=0&&(body.type!=='percent'||body.value<=100));
+   const data={name:text(body.name,120),code:text(body.code,50),type:body.type,value:body.value,active:body.active!==false,plans:[],months:[],minimum:0};
+   requireValue(data.name&&data.code);if(body.id)data.id=uuid(body.id);await result(service.rpc('nr_promotion_save',{p_actor:actor,p_data:data}));return {ok:true};
   }
   if(action==='decision'){
    administrator(ctx);requireValue(typeof body.approve==='boolean');return result(service.rpc('nr_order_decide',{p_actor:actor,p_order:uuid(body.orderId),p_approve:body.approve,p_reason:text(body.reason||'',2000)}));

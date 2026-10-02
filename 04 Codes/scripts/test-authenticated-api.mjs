@@ -28,6 +28,7 @@ try{
  assert.equal((await call('sync',b.token,{...operation,organizationId:orgs[0]})).status,403);
  const forbidden=await b.client.rpc('nr_snapshot',{p_org:orgs[0]});assert.equal(forbidden.data,null);
  assert.equal((await call('admin',a.token)).status,403);
+ for(const action of ['commercial-settings','promotion','moderate-review'])assert.equal((await call(action,a.token,{})).status,403);
  const quote=await call('quote',a.token,{plan:'avance',months:1,code:''});assert.equal(quote.data.total,2500);
  const order=await call('order',a.token,{plan:'avance',months:1,code:'',method:'mvola',idempotencyKey:crypto.randomUUID(),total:1});assert.equal(order.data.total,2500);
  assert.equal((await call('declare-payment',b.token,{orderId:order.data.id,reference:'forbidden'})).status,404);

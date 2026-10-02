@@ -1,3 +1,4 @@
+import {commercialPanel} from './ui/commercial-admin.js';
 import {membersPanel} from './ui/members.js';
 import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
@@ -121,6 +122,7 @@ async function account(){
  document.querySelectorAll('[data-account-tab]').forEach(button=>button.onclick=()=>{
   document.querySelectorAll('[data-account-tab]').forEach(b=>b.classList.toggle('active',b===button));
   const area=document.querySelector('#account-content'),tab=button.textContent;
+  if(admin&&['Paramètres','Codes promo','Commandes','Paiements','Avis'].includes(tab)){commercialPanel(area,tab,{api,esc,money}).catch(e=>{area.textContent=e.message;});return;}
   if(tab==='Vue d’ensemble'){area.innerHTML=overview();return;}
   if(tab==='Utilisateurs'&&!admin){if(ctx.role!=='owner'){area.innerHTML='<p>Gestion réservée au propriétaire.</p>';return;}membersPanel(area,{api,esc}).catch(e=>{area.textContent=e.message;});return;}
   if(tab==='Abonnement'){area.innerHTML=`<div id="pricing-root">${pricing()}</div><a class="button primary" href="/paiement">Renouveler ou choisir une offre</a>`;bindPublic();return;}
