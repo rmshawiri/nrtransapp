@@ -93,7 +93,7 @@ async function workspace(){
   const local=await Store.current(),remote=conflict.remote,dialog=document.querySelector('#sync-conflict');
   const summary=s=>`${s.days.length} journées · ${s.expenses.length} dépenses · trésorerie ${money(Core.stats(s).balance)}`;
   dialog.innerHTML=`<h2>Deux versions à comparer</h2><p>Une autre session a modifié cette activité. Vos saisies sont conservées sur cet appareil.</p><p><b>Sur cet appareil</b><br>${esc(summary(local))}</p><p><b>Sur le serveur · version ${remote.serverVersion}</b><br>${esc(summary(remote))}</p><p>Le choix s’applique à toute l’activité. Les deux versions seront archivées sur cet appareil et téléchargeables dans « Versions conservées ».</p><div class="formfoot"><button data-choice="remote">Reprendre la version serveur</button><button class="primary" data-choice="local">Envoyer ma version locale</button><button data-close>Décider plus tard</button></div><p class="error" role="alert"></p>`;
-  if(!dialog.open)dialog.showModal();dialog.querySelector('[data-close]').onclick=()=>dialog.close();
+  dialog.setAttribute('aria-label',dialog.querySelector('h2')?.textContent||'Choisir une version');if(!dialog.open)dialog.showModal();dialog.querySelector('[data-close]').onclick=()=>dialog.close();
   dialog.querySelectorAll('[data-choice]').forEach(button=>button.onclick=async()=>{try{await Store.reconcile(remote,{choice:button.dataset.choice,expectedRevision:local.revision});dialog.close();await sync();}catch(e){dialog.querySelector('.error').textContent=e.message;}});
  };
  const sync=async()=>{
@@ -107,7 +107,7 @@ async function workspace(){
   }catch(e){indicator.textContent='En attente · Réessayer';indicator.title=e.message;}finally{syncing=false;}
  };
  document.querySelector('#sync-state').onclick=async()=>{if(await Store.conflict())await resolveConflict();else await sync();};
- document.querySelector('#recoveries').onclick=async()=>{const versions=await Store.recoveries(),dialog=document.querySelector('#sync-conflict');dialog.innerHTML='<h2>Versions conservées</h2><p>Chaque fichier peut être restauré depuis le module Sauvegarde.</p>'+versions.map((v,i)=>`<article class="record-card"><b>${esc(new Date(v.at).toLocaleString('fr-FR'))}</b><button data-version="${i}" data-source="local">Télécharger la version locale</button><button data-version="${i}" data-source="remote">Télécharger la version serveur</button></article>`).join('')+(versions.length?'':'<p>Aucun conflit résolu sur cet appareil.</p>')+'<button data-close>Fermer</button>';dialog.showModal();dialog.querySelector('[data-close]').onclick=()=>dialog.close();dialog.querySelectorAll('[data-version]').forEach(b=>b.onclick=()=>downloadJSON(Core.backup(versions[Number(b.dataset.version)][b.dataset.source]),'nr-trans-recovery-'+b.dataset.source+'.json'));};
+ document.querySelector('#recoveries').onclick=async()=>{const versions=await Store.recoveries(),dialog=document.querySelector('#sync-conflict');dialog.innerHTML='<h2>Versions conservées</h2><p>Chaque fichier peut être restauré depuis le module Sauvegarde.</p>'+versions.map((v,i)=>`<article class="record-card"><b>${esc(new Date(v.at).toLocaleString('fr-FR'))}</b><button data-version="${i}" data-source="local">Télécharger la version locale</button><button data-version="${i}" data-source="remote">Télécharger la version serveur</button></article>`).join('')+(versions.length?'':'<p>Aucun conflit résolu sur cet appareil.</p>')+'<button data-close>Fermer</button>';dialog.setAttribute('aria-label',dialog.querySelector('h2')?.textContent||'Choisir une version');dialog.showModal();dialog.querySelector('[data-close]').onclick=()=>dialog.close();dialog.querySelectorAll('[data-version]').forEach(b=>b.onclick=()=>downloadJSON(Core.backup(versions[Number(b.dataset.version)][b.dataset.source]),'nr-trans-recovery-'+b.dataset.source+'.json'));};
  window.addEventListener('nr-data-saved',sync);window.addEventListener('online',sync);window.addEventListener('offline',sync);await sync();
 }
 
@@ -159,7 +159,7 @@ async function checkout(){
 
 try{
  if(path==='/'){root.innerHTML=home();fetch('/api/platform?action=public-reviews').then(r=>r.ok?r.json():null).then(data=>{const section=document.querySelector('#public-reviews');if(!section||!data?.reviews?.length)return;section.querySelector('.feature-grid').innerHTML=data.reviews.map(r=>'<article><b>'+esc(r.author_name)+'</b><p aria-label="Note">'+esc(r.rating)+' / 5</p><p>'+esc(r.comment)+'</p></article>').join('');section.hidden=false;}).catch(()=>{});}
- else if(path==='/tarifs')root.innerHTML=header()+'<main id="pricing-root">'+pricing()+'</main>'+footer();
+ else if(path==='/tarifs')root.innerHTML=header()+'<main id="pricing-root"><h1 class="section">Tarifs NR-TRANS</h1>'+pricing()+'</main>'+footer();
  else if(['/confidentialite','/conditions','/mentions-legales'].includes(path))root.innerHTML=legal(path.slice(1));
  else if(path==='/inscription')signup();
  else if(['/connexion','/recuperation','/nouveau-mot-de-passe'].includes(path))await authPage();

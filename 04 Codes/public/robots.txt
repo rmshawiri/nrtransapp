@@ -1,8 +1,4 @@
 User-agent: *
 Allow: /
-Disallow: /app
-Disallow: /client
-Disallow: /admin
-Disallow: /paiement
-Disallow: /demo
+Disallow: /api/
 Sitemap: https://nr-trans.morashawiri.com/sitemap.xml

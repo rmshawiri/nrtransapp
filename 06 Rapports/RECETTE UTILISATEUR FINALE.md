@@ -1,6 +1,6 @@
 # RECETTE UTILISATEUR FINALE
 
-À réaliser avec le propriétaire lorsque le développement sera suffisamment terminé. Ces étapes ne bloquent pas les tests automatisables ni les lots de développement.
+Prête à commencer après la livraison technique. À réaliser avec le propriétaire ; toutes les cases restent volontairement non cochées jusqu’à sa recette réelle.
 
 ## Authentification
 - [ ] Créer un compte Client distinct du compte Admin sur le domaine officiel.
