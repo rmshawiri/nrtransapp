@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {commercialMetrics} from '../src/ui/commercial-overview.js';
+test('commercial metrics distinguish expired, active and future subscriptions and exclude unapproved money',()=>{
+ const data={clients:[{created_at:'2026-10-01'},{created_at:'2026-09-01'}],subscriptions:[{org_id:'a',plan_id:'gratuit',starts_at:'2026-10-01',ends_at:'2026-10-08'},{org_id:'b',plan_id:'avance',starts_at:'2026-09-01',ends_at:'2026-10-01'},{org_id:'b',plan_id:'avance',starts_at:'2026-10-01',ends_at:'2026-11-01'},{org_id:'c',plan_id:'vip',starts_at:'2026-09-01',ends_at:'2026-10-01'},{org_id:'d',plan_id:'vip',starts_at:'2026-11-01',ends_at:'2026-12-01'}],orders:[{status:'approved',total:2500},{status:'declared',total:5000},{status:'rejected',total:100}],reviews:[{status:'pending'}],promotions:[{active:true},{active:true,ends_at:'2026-10-01'},{active:false}]};
+ const m=commercialMetrics(data,new Date('2026-10-03T00:00:00Z'));
+ assert.equal(m.trial,1);assert.equal(m.avance,1);assert.equal(m.vip,0);assert.equal(m.expired,1);assert.equal(m.revenue,2500);assert.equal(m.newClients,1);assert.equal(m.pending,1);assert.equal(m.promotions,1);assert.equal(m.months.at(-1).count,1);
+});

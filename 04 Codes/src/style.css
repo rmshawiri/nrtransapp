@@ -7,3 +7,4 @@
  .pwa-update,.pwa-install{position:fixed;bottom:18px;right:18px;z-index:100;background:#003366;color:white;padding:12px 18px;border-radius:12px;box-shadow:0 6px 24px #00336625}.pwa-install{bottom:72px}#sync-conflict{max-width:680px;width:calc(100% - 32px);max-height:85vh;overflow:auto;border:0;border-radius:18px;padding:28px}#sync-conflict::backdrop{background:#001a33aa}#sync-conflict .formfoot{flex-wrap:wrap}
 /* Keep account sign-out reachable on touch screens. */
 @media(max-width:760px){.account-layout>aside>#logout{display:inline-flex;align-self:flex-start}}
+[hidden]{display:none!important}.account-layout .card{min-width:0}.account-layout .card .value{overflow-wrap:anywhere}.record-card details{flex-basis:100%;overflow-wrap:anywhere}
