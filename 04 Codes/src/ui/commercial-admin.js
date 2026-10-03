@@ -1,6 +1,8 @@
+import {interventionsPanel} from './interventions.js';
 import {orderStatus} from './payment-detail.js';
 import {promotionsPanel} from './promotions.js';
 export async function commercialPanel(area,tab,{api,esc,money}){
+ if(tab==='Interventions')return interventionsPanel(area,{api,esc});
  if(tab==='Codes promo')return promotionsPanel(area,{api,esc,money});
  const data=await api('admin');
  const refresh=()=>commercialPanel(area,tab,{api,esc,money});

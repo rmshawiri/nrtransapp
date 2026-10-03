@@ -1,0 +1,9 @@
+# Interventions Admin directes — 3 octobre 2026
+
+Deux actions exceptionnelles depuis Admin / Interventions : ajout d'une période administrative Avancé/VIP (1/3/6/12 mois) après tous les droits déjà acquis ; suspension/rétablissement des nouvelles écritures. La consultation reste disponible, aucun enregistrement métier ni période n'est supprimé. La suspension ne décale pas les échéances. Un changement de formule payante conserve la politique configurable existante à l'expiration ; aucun prorata inventé. Les paiements restent dans le parcours Commandes.
+
+Migration 20261003115001_admin_interventions appliquée. Autorisation Admin en base et serveur, motif obligatoire, clé d'idempotence persistée dans le navigateur, sérialisation des demandes, audit unique contenant auteur/date/action/requête/résultat/état précédent. Notification interne au client. Garde SQL sur la version de l'organisation : une synchronisation suspendue est entièrement annulée, même si le navigateur n'a pas encore appris la suspension. Les saisies hors ligne restent locales en attente ; la mesure est découverte à la reconnexion.
+
+Validation : six tests locaux et six tests Supabase distants réussis. Non-Admin/anon/authenticated refusés ; paramètres invalides refusés ; historique, périodes et données conservés ; répétition sans double mutation ; lecture pendant suspension ; reprise après rétablissement ; commandes/promotions/renouvellement/alertes existants vérifiés. Build réussi. Parcours navigateur/API PC puis mobile réussi : suspension, tentative de synchronisation refusée, rétablissement, ajout de période, journal consultable. Fixtures nettoyées.
+
+Après vérification de ce checkpoint en production, le dernier manque fonctionnel identifié dans le rapport 29 est traité. La suite est limitée aux finitions de livraison demandées : SEO/accessibilité/routes/liens/erreurs, documentation et huit captures. Les fonctions déjà validées ne seront pas reconstruites.

@@ -1,0 +1,29 @@
+import assert from 'node:assert/strict';import {chromium} from 'playwright';import {createClient} from '@supabase/supabase-js';import {credentials} from './credentials.mjs';import {databaseClient} from './database-client.mjs';
+const c=credentials(),origin=process.env.NR_TEST_ORIGIN||'https://nr-trans.morashawiri.com',options={auth:{persistSession:false,autoRefreshToken:false}},service=createClient(new URL(c['API URL']).origin,c['Secret keys'],options),auth=createClient(new URL(c['API URL']).origin,c['Publishable key'],options),db=databaseClient();let userId,org,browser;
+try{
+ await db.connect();const email='nr-admin-flow-'+crypto.randomUUID()+'@example.com',password=crypto.randomUUID()+'Aa!';const created=await service.auth.admin.createUser({email,password,email_confirm:true});assert.equal(created.error,null);userId=created.data.user.id;
+ const login=await auth.auth.signInWithPassword({email,password});assert.equal(login.error,null);const token=login.data.session.access_token;
+ const api=async(action,body)=>{const response=await fetch(origin+'/api/platform?action='+action,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});return {status:response.status,data:await response.json()};};
+ let ctx=(await api('context')).data;org=ctx.organizationId;const initial=ctx.initialState;
+ assert.equal((await api('admin-intervention',{organizationId:org,id:crypto.randomUUID(),operation:'write_status',suspended:true,reason:'Refus attendu'})).status,403);
+ assert.equal((await api('sync',{id:crypto.randomUUID(),baseVersion:0,state:initial})).status,200);
+ const before=(await db.query('select ends_at from nr_subscriptions where org_id=$1',[org])).rows[0].ends_at;
+ browser=await chromium.launch({channel:'chrome'});const page=await browser.newPage({viewport:{width:1440,height:1000}});
+ await page.goto(origin+'/connexion');await page.locator('[name=email]').fill(c.ADMIN_EMAIL);await page.locator('[name=password]').fill(c.ADMIN_PASSWORD);await page.locator('#auth-form button').click();await page.waitForURL('**/client');
+ const form=async()=>{await page.goto(origin+'/admin');await page.getByRole('button',{name:'Interventions',exact:true}).click();await page.locator('#intervention-form').waitFor();await page.locator('[name=organizationId]').selectOption(org);};
+ const status=async suspended=>{await form();await page.locator('[name=operation]').selectOption('write_status');await page.locator('[name=suspended]').selectOption(String(suspended));await page.locator('[name=reason]').fill('Intervention de recette temporaire');await page.locator('#intervention-form button').click();await page.getByText('Statut enregistré et intervention journalisée.',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);};
+ await status(true);ctx=(await api('context')).data;assert.equal(ctx.canWrite,false);assert.equal(ctx.writeSuspended,true);assert.equal(ctx.subscription.plan,'gratuit');
+ const changed=structuredClone(initial);changed.vehicles[0].name='Blocked';assert.equal((await api('sync',{id:crypto.randomUUID(),baseVersion:1,state:changed})).status,409);
+ assert.equal((await api('snapshot')).data.state.vehicles[0].name,initial.vehicles[0].name);
+ await page.setViewportSize({width:390,height:844});await status(false);assert.equal((await api('context')).data.canWrite,true);
+ await form();await page.locator('[name=reason]').fill('Période administrative de recette');await page.locator('#intervention-form button').click();await page.locator('#intervention-result').filter({hasText:'Période ajoutée'}).waitFor();
+ const periods=(await db.query('select starts_at,ends_at from nr_subscriptions where org_id=$1 order by starts_at',[org])).rows;assert.equal(periods.length,2);assert.equal(periods[0].ends_at.toISOString(),before.toISOString());assert.equal(periods[1].starts_at.toISOString(),before.toISOString());
+ assert.equal((await db.query("select count(*)::int n from nr_audit where org_id=$1 and action in('admin_write_status','admin_subscription_added') and actor_id is not null and created_at is not null",[org])).rows[0].n,3);
+ await page.getByRole('button',{name:'Journal',exact:true}).click();await page.locator('#record-search').fill('admin_subscription_added');await page.getByText('Détails de l’action',{exact:true}).first().click();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+ console.log('Admin intervention browser/API passed: non-admin denial, suspension, preserved data, restoration, appended period, audit, desktop/mobile.');
+}catch(e){console.error('Admin intervention verification failed: '+e.name);console.error(e.stack?.split('\n').filter(l=>l.includes('test-admin-interventions-browser.mjs')).join('\n'));process.exitCode=1;}
+finally{
+ await browser?.close();await auth.auth.signOut({scope:'local'}).catch(()=>{});
+ if(userId){try{await db.query('begin');const ids=(await db.query('select id from nr_organizations where owner_id=$1',[userId])).rows.map(r=>r.id);for(const table of ['nr_invitations','nr_subscriptions','nr_payments','nr_orders','nr_reviews','nr_notifications','nr_audit','nr_sync_receipts','nr_member_vehicles','nr_loan_allocations','nr_records','nr_members'])await db.query('delete from '+table+' where org_id=any($1::uuid[])',[ids]);await db.query('delete from nr_organizations where id=any($1::uuid[])',[ids]);await db.query('delete from nr_profiles where id=$1',[userId]);await db.query('commit');const deleted=await service.auth.admin.deleteUser(userId);assert.equal(deleted.error,null);}catch{await db.query('rollback').catch(()=>{});console.error('Admin fixture cleanup requires attention.');process.exitCode=1;}}
+ await db.end();
+}

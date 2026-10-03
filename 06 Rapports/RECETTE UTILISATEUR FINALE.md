@@ -44,3 +44,5 @@ Les tests techniques déjà réussis restent consignés dans les rapports numér
 - [ ] Tester le retour proposé après une invitation invalide ou expirée.
 - [ ] Valider les coordonnées et mentions commerciales/juridiques avant ouverture au public.
 - [ ] À l'ouverture de l'espace Client, vérifier l'alerte à trois jours de l'échéance puis l'alerte après expiration ; recharger sans doublon et vérifier que les données restent consultables.
+- [ ] Admin : ajouter une période administrative avec motif ; vérifier historique, dates acquises, notification et journal.
+- [ ] Admin : suspendre puis rétablir les écritures ; vérifier la consultation conservée et le refus de synchronisation pendant la suspension.
