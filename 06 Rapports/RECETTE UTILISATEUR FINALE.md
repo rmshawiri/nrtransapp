@@ -36,3 +36,10 @@
 - [ ] Installer une mise à jour sans perdre les opérations en attente.
 
 Les tests techniques déjà réussis restent consignés dans les rapports numérotés. Cette liste couvre l’expérience humaine finale ; elle ne constitue pas une validation déjà effectuée.
+
+## Compléments de clôture
+- [ ] Vérifier les instructions de chaque moyen de paiement réellement proposé et leur disponibilité.
+- [ ] Consulter les fiches clients, filtres de commandes, statistiques et historique des abonnements.
+- [ ] Vérifier la publication puis le masquage d'un avis réel approuvé.
+- [ ] Tester le retour proposé après une invitation invalide ou expirée.
+- [ ] Valider les coordonnées et mentions commerciales/juridiques avant ouverture au public.

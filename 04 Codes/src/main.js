@@ -74,7 +74,7 @@ async function privateContext(){
  const {data,error}=await client.auth.getUser();if(error||!data.user){location.replace('/connexion');return null;}
  session=data.user;
  const invitation=sessionStorage.getItem('nr-invitation');
- if(invitation){await api('accept-invitation',{token:invitation});sessionStorage.removeItem('nr-invitation');history.replaceState(null,'',location.pathname);}
+ if(invitation){try{await api('accept-invitation',{token:invitation});sessionStorage.removeItem('nr-invitation');history.replaceState(null,'',location.pathname);}catch(error){root.innerHTML=authLayout('Invitation non acceptée.',`<p role="alert">${esc(error.message)}</p><p>Utilisez le compte correspondant à l’adresse invitée. Vous pouvez aussi revenir à votre espace sans accepter cette invitation.</p><button id="retry-invitation" class="primary">Réessayer</button> <button id="switch-invitation-account">Changer de compte</button> <button id="dismiss-invitation">Continuer sans cette invitation</button>`);document.querySelector('#retry-invitation').onclick=()=>location.reload();document.querySelector('#switch-invitation-account').onclick=async()=>{Store.closeDB();forgetContext();await client.auth.signOut({scope:'local'});location.assign('/connexion');};document.querySelector('#dismiss-invitation').onclick=()=>{sessionStorage.removeItem('nr-invitation');location.assign('/client');};return null;}}
  const context=await api('context');rememberContext(session,context);return context;
 }
 async function workspace(){
@@ -122,6 +122,7 @@ function accountShell(title,content,admin=false){return `<div class="account-lay
 async function account(){
  const admin=path==='/admin',ctx=await privateContext();if(!ctx)return;
  if(admin&&!ctx.isAdmin){root.innerHTML=authLayout('Accès réservé.','<p>Votre compte ne dispose pas des droits d’administration.</p><a href="/client">Retour à mon espace</a>');return;}
+ if(!admin&&ctx.role==='viewer'){renderViewer(ctx);return;}
  let data=await api(admin?'admin':'client');
  const overview=()=>admin?commercialOverview(data,{esc,money}):`<p class="sub">${admin?'Suivez l’activité commerciale de NR-TRANS.':'Votre compte, votre abonnement et vos prochaines étapes.'}</p><div class="cards"><article class="card highlight"><span>Abonnement</span><div class="value">${esc(data.subscription?.plan||(data.subscriptions?.length?'Expiré':'Aucun abonnement actif'))}</div><p>${data.subscription?.endsAt?'Expire le '+new Date(data.subscription.endsAt).toLocaleDateString('fr-FR'):'Votre compte'}</p></article><article class="card"><span>Véhicules</span><div class="value">${data.vehicleCount??0}</div><a href="/app">Consulter mon parc</a></article><article class="card"><span>Commandes</span><div class="value">${data.orders?.length??0}</div></article><article class="card"><span>Notifications</span><div class="value">${data.notifications?.length??0}</div></article></div><section class="panel"><h2>Tout est prêt pour votre prochaine journée.</h2><p>Retrouvez vos versements, vos dépenses et vos indicateurs dans l’application.</p><a class="button primary" href="/app">Ouvrir mon tableau de bord</a> <a class="button" href="/paiement">Renouveler mon abonnement</a></section>`;
  root.innerHTML=accountShell(admin?'Tableau de bord commercial':'Bonjour, '+esc(data.profile?.display_name||'bienvenue'),overview(),admin);
