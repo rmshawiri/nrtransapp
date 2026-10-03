@@ -5,3 +5,5 @@
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 @media print{.app-globalbar,.fleet-filter,.account-top{display:none!important}.main{background:#fff}.tablewrap table{display:table}.tablewrap thead{display:table-header-group}.tablewrap tbody{display:table-row-group}.tablewrap tr{display:table-row}.tablewrap td{display:table-cell}.tablewrap td:before{content:none}}
  .pwa-update,.pwa-install{position:fixed;bottom:18px;right:18px;z-index:100;background:#003366;color:white;padding:12px 18px;border-radius:12px;box-shadow:0 6px 24px #00336625}.pwa-install{bottom:72px}#sync-conflict{max-width:680px;width:calc(100% - 32px);max-height:85vh;overflow:auto;border:0;border-radius:18px;padding:28px}#sync-conflict::backdrop{background:#001a33aa}#sync-conflict .formfoot{flex-wrap:wrap}
+/* Keep account sign-out reachable on touch screens. */
+@media(max-width:760px){.account-layout>aside>#logout{display:inline-flex;align-self:flex-start}}

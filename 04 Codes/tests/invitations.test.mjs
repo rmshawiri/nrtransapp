@@ -81,5 +81,11 @@ test('Invitations : capacité explicite, identité vérifiée, révocation et is
  await assert.rejects(()=>rpc('select nr_notification_read($1,$2)',[reader,id]),/access_denied/);
  await rpc('select nr_notification_read($1,$2)',[owner,id]);assert.ok((await db.query('select read_at from nr_notifications where id=$1',[id])).rows[0].read_at);
  });
+ await t.test('moyens manuels : rôle admin, instructions et intégrations indisponibles',async()=>{
+ await assert.rejects(()=>rpc('select nr_payment_method_save($1,$2,$3,$4)',[owner,'cash','disabled','Test']),/access_denied/);
+ await assert.rejects(()=>rpc('select nr_payment_method_save($1,$2,$3,$4)',[admin,'card','active','Test']),/payment_integration_unavailable/);
+ await assert.rejects(()=>rpc('select nr_payment_method_save($1,$2,$3,$4)',[admin,'bank','active','Coordonnées à configurer par MORA Shawiri.']),/payment_instructions_required/);
+ await rpc('select nr_payment_method_save($1,$2,$3,$4)',[admin,'cash','disabled','Consignes temporaires']);assert.equal((await db.query("select status from nr_payment_methods where id='cash'")).rows[0].status,'disabled');
+ });
  }finally{await db.close();}
 });

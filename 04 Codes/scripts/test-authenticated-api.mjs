@@ -4,7 +4,7 @@ import {credentials} from './credentials.mjs';
 import {databaseClient} from './database-client.mjs';
 const c=credentials(),base=new URL(c['API URL']).origin;
 const options={auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}};
-const admin=createClient(base,c['Secret keys'],options),fixtures=[],orgs=[];
+const admin=createClient(base,c['Secret keys'],options),fixtures=[],orgs=[],promotions=[];
 const origin=process.env.NR_TEST_ORIGIN||'http://127.0.0.1:5173';
 async function call(action,token,body){const response=await fetch(origin+'/api/platform?action='+action,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+(token||''),'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});return {status:response.status,data:await response.json()};}
 async function fixture(){
@@ -28,7 +28,7 @@ try{
  assert.equal((await call('sync',b.token,{...operation,organizationId:orgs[0]})).status,403);
  const forbidden=await b.client.rpc('nr_snapshot',{p_org:orgs[0]});assert.equal(forbidden.data,null);
  assert.equal((await call('admin',a.token)).status,403);
- for(const action of ['commercial-settings','promotion','moderate-review','send-notification'])assert.equal((await call(action,a.token,{})).status,403);
+ for(const action of ['commercial-settings','promotion','moderate-review','send-notification','payment-method'])assert.equal((await call(action,a.token,{})).status,403);
  const quote=await call('quote',a.token,{plan:'avance',months:1,code:''});assert.equal(quote.data.total,2500);
  const order=await call('order',a.token,{plan:'avance',months:1,code:'',method:'mvola',idempotencyKey:crypto.randomUUID(),total:1});assert.equal(order.data.total,2500);
  assert.equal((await call('declare-payment',b.token,{orderId:order.data.id,reference:'forbidden'})).status,404);
@@ -45,6 +45,13 @@ try{
  const commercialAdmin=createClient(base,c['Publishable key'],options);
  try{
  const login=await commercialAdmin.auth.signInWithPassword({email:c.ADMIN_EMAIL,password:c.ADMIN_PASSWORD});assert.equal(login.error,null);
+ const promoBody={name:'Recette temporaire',code:'HTTP'+crypto.randomUUID().replaceAll('-',''),type:'fixed',value:500,active:true,plans:['avance'],months:[1],minimum:2000,maxUses:10,maxPerClient:1};
+ const promo=await call('promotion',login.data.session.access_token,promoBody);assert.equal(promo.status,200);promotions.push(promo.data.id);
+ assert.equal((await call('quote',a.token,{plan:'avance',months:1,code:promoBody.code})).data.total,2000);
+ assert.equal((await call('quote',a.token,{plan:'vip',months:1,code:promoBody.code})).status,409);
+ assert.equal((await call('promotion',login.data.session.access_token,{...promoBody,id:promo.data.id,active:false})).status,200);
+ assert.equal((await call('quote',a.token,{plan:'avance',months:1,code:promoBody.code})).status,409);
+ assert.equal((await call('payment-method',login.data.session.access_token,{id:'card',status:'active',instructions:'Recette'})).status,409);
  const notice={organizationId:orgs[0],id:crypto.randomUUID(),title:'Recette temporaire',message:'Notification interne de test'};
  assert.equal((await call('send-notification',login.data.session.access_token,notice)).status,200);
  assert.equal((await call('send-notification',login.data.session.access_token,notice)).status,200);
@@ -69,6 +76,7 @@ finally{
   // Restrict cleanup to organizations owned by accounts created in this exact run.
   const owned=(await db.query('select id from nr_organizations where owner_id=any($1::uuid[])',[ids])).rows.map(x=>x.id);
   for(const table of ['nr_subscriptions','nr_payments','nr_orders','nr_reviews','nr_notifications','nr_audit','nr_sync_receipts','nr_member_vehicles','nr_loan_allocations','nr_records','nr_members'])await db.query('delete from '+table+' where org_id=any($1::uuid[])',[owned]);
+  await db.query('delete from nr_audit where entity_id=any($1::uuid[])',[promotions]);await db.query('delete from nr_promotions where id=any($1::uuid[])',[promotions]);
   await db.query('delete from nr_organizations where id=any($1::uuid[])',[owned]);await db.query('delete from nr_profiles where id=any($1::uuid[])',[ids]);await db.query('commit');
  }catch{await db.query('rollback').catch(()=>{});console.log('Fixture database cleanup requires attention.');process.exitCode=1;}finally{await db.end().catch(()=>{});}
  for(const f of fixtures){const {error}=await admin.auth.admin.deleteUser(f.id);if(error){console.log('Fixture Auth cleanup requires attention.');process.exitCode=1;}}

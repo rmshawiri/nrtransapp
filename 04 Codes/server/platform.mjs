@@ -9,7 +9,7 @@ const requireValue=(ok,message='Données invalides.',status=400)=>{if(!ok)throw 
 const text=(value,max=160)=>{requireValue(typeof value==='string'&&value.trim().length<=max);return value.trim();};
 const uuid=value=>{requireValue(typeof value==='string'&&uuidPattern.test(value));return value;};
 const options={auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}};
-const messages={secondary_user_policy_required:'Le nombre de lecteurs doit être configuré par l’administrateur commercial.',secondary_user_limit:'La limite de lecteurs de votre formule est atteinte.',invitation_invalid:'Cette invitation est invalide, expirée ou annulée.',invitation_email_mismatch:'Connectez-vous avec l’adresse confirmée destinataire de cette invitation.',account_already_attached:'Ce compte est déjà rattaché à une autre activité.',invalid_vehicle_scope:'Un véhicule sélectionné est indisponible.',member_missing:'Cet utilisateur secondaire est introuvable.',invalid_email:'Indiquez une adresse e-mail valide.',access_denied:'Accès refusé.',subscription_expired:'Votre abonnement a expiré. Vos données restent consultables.',upgrade_required:'Cette formule autorise un seul véhicule. Choisissez VIP pour agrandir votre parc.',invalid_promotion:'Code promotionnel invalide ou expiré.',promotion_not_applicable:'Ce code ne s’applique pas à cette offre.',promotion_limit:'Ce code a atteint sa limite d’utilisation.',payment_method_unavailable:'Ce moyen de paiement est indisponible.',plan_change_policy_required:'Contactez MORA Shawiri pour organiser votre changement de formule.',idempotency_key_reused:'Cette demande a déjà été utilisée avec un contenu différent.',invalid_transition:'Le statut de cette commande ne permet plus cette action.',reason_required:'Indiquez le motif du refus.'};
+const messages={payment_integration_unavailable:'Ce moyen reste indisponible tant que son intégration n’est pas réalisée.',payment_instructions_required:'Renseignez les coordonnées de paiement avant d’activer le virement.',secondary_user_policy_required:'Le nombre de lecteurs doit être configuré par l’administrateur commercial.',secondary_user_limit:'La limite de lecteurs de votre formule est atteinte.',invitation_invalid:'Cette invitation est invalide, expirée ou annulée.',invitation_email_mismatch:'Connectez-vous avec l’adresse confirmée destinataire de cette invitation.',account_already_attached:'Ce compte est déjà rattaché à une autre activité.',invalid_vehicle_scope:'Un véhicule sélectionné est indisponible.',member_missing:'Cet utilisateur secondaire est introuvable.',invalid_email:'Indiquez une adresse e-mail valide.',access_denied:'Accès refusé.',subscription_expired:'Votre abonnement a expiré. Vos données restent consultables.',upgrade_required:'Cette formule autorise un seul véhicule. Choisissez VIP pour agrandir votre parc.',invalid_promotion:'Code promotionnel invalide ou expiré.',promotion_not_applicable:'Ce code ne s’applique pas à cette offre.',promotion_limit:'Ce code a atteint sa limite d’utilisation.',payment_method_unavailable:'Ce moyen de paiement est indisponible.',plan_change_policy_required:'Contactez MORA Shawiri pour organiser votre changement de formule.',idempotency_key_reused:'Cette demande a déjà été utilisée avec un contenu différent.',invalid_transition:'Le statut de cette commande ne permet plus cette action.',reason_required:'Indiquez le motif du refus.'};
 async function result(request){const {data,error}=await request;if(error){const message=messages[error.message];throw new HttpError(error.message==='access_denied'?403:message?409:500,message||'L’opération n’a pas abouti. Réessayez dans quelques instants.');}return data;}
 
 export function publicConfig(env=process.env){return {supabaseUrl:env.SUPABASE_URL||'',publishableKey:env.SUPABASE_PUBLISHABLE_KEY||'',ready:!!(env.SUPABASE_URL&&env.SUPABASE_PUBLISHABLE_KEY&&env.SUPABASE_SECRET_KEY)};}
@@ -76,7 +76,7 @@ export function createPlatform(env=process.env){
    return {organizationId:await result(service.rpc('nr_invitation_accept',{p_actor:actor,p_token:uuid(body.token)}))};
   }
   const ctx=await context(auth),org=ctx.organizationId;
-  const readActions=['context','client','admin','snapshot','members'];
+  const readActions=['context','client','admin','snapshot','members','payment-methods'];
   requireValue(readActions.includes(action)?method==='GET':method==='POST','Méthode non autorisée.',405);
   if(action==='context')return {...ctx,initialState:await snapshot(auth,ctx)};
   if(action==='snapshot')return {state:await snapshot(auth,ctx)};
@@ -113,6 +113,8 @@ export function createPlatform(env=process.env){
    owner(ctx);requireValue(typeof body.active==='boolean'&&typeof body.allVehicles==='boolean'&&Array.isArray(body.vehicleIds)&&body.vehicleIds.length<=1000);
    await result(service.rpc('nr_member_change',{p_org:org,p_actor:actor,p_user:uuid(body.userId),p_active:body.active,p_all:body.allVehicles,p_vehicles:[...new Set(body.vehicleIds.map(uuid))]}));return {ok:true};
   }
+  if(action==='payment-methods')return result(service.from('nr_payment_methods').select('id,name,status,instructions'));
+  if(action==='payment-method') {administrator(ctx);requireValue(['active','disabled','soon'].includes(body.status));await result(service.rpc('nr_payment_method_save',{p_actor:actor,p_id:text(body.id,30),p_status:body.status,p_instructions:text(body.instructions,4000)}));return {ok:true};}
   if(action==='order-detail'){
    owner(ctx);const order=await orderFor(ctx,body.id);
    const method=await result(service.from('nr_payment_methods').select('id,name,status,instructions').eq('id',order.method).single());
@@ -161,7 +163,13 @@ export function createPlatform(env=process.env){
   if(action==='promotion'){
    administrator(ctx);requireValue(['fixed','percent'].includes(body.type)&&Number.isFinite(body.value)&&body.value>=0&&(body.type!=='percent'||body.value<=100));
    const data={name:text(body.name,120),code:text(body.code,50),type:body.type,value:body.value,active:body.active!==false,plans:[],months:[],minimum:0};
-   requireValue(data.name&&data.code);if(body.id)data.id=uuid(body.id);await result(service.rpc('nr_promotion_save',{p_actor:actor,p_data:data}));return {ok:true};
+   requireValue(data.name&&data.code.length>=3);
+   requireValue(body.plans===undefined||Array.isArray(body.plans)&&body.plans.every(x=>['avance','vip'].includes(x)));requireValue(body.months===undefined||Array.isArray(body.months)&&body.months.every(x=>[1,3,6,12].includes(x)));
+   data.plans=[...new Set(body.plans||[])];data.months=[...new Set(body.months||[])];
+   for(const key of ['maxUses','maxPerClient','minimum']){const value=body[key]??(key==='minimum'?0:null);requireValue(value===null||Number.isSafeInteger(value)&&value>=0);data[key]=value;}
+   for(const key of ['startsAt','endsAt']){const value=body[key]||null;requireValue(value===null||typeof value==='string'&&Number.isFinite(Date.parse(value)));data[key]=value;}
+   if(data.startsAt&&data.endsAt)requireValue(Date.parse(data.endsAt)>Date.parse(data.startsAt));
+   if(body.id)data.id=uuid(body.id);return {id:await result(service.rpc('nr_promotion_save',{p_actor:actor,p_data:data}))};
   }
   if(action==='decision'){
    administrator(ctx);requireValue(typeof body.approve==='boolean');return result(service.rpc('nr_order_decide',{p_actor:actor,p_order:uuid(body.orderId),p_approve:body.approve,p_reason:text(body.reason||'',2000)}));
