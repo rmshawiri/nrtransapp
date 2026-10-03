@@ -25,11 +25,11 @@ for(const [path,title] of Object.entries({inscription:'Créer un compte',connexi
 await writeFile('dist/404.html',page('/404','Page introuvable','Cette page NR-TRANS est introuvable.',header()+'<main class="legal section"><h1>Page introuvable</h1><p>Vérifiez l’adresse ou revenez à l’accueil.</p><a class="button primary" href="/">Retour à l’accueil</a></main>'+footer()));
 await writeFile('dist/shell.html',page('/app','NR-TRANS hors ligne','Votre activité NR-TRANS sur cet appareil.'));
 const files=await readdir('dist/assets');
-const assets=['/manifest.webmanifest','/shell.html','/brand/icon.webp','/brand/logo.webp',...files.map(f=>'/assets/'+f)];
+const assets=['/manifest.webmanifest','/shell','/brand/icon.webp','/brand/logo.webp',...files.map(f=>'/assets/'+f)];
 const cache='nr-trans-v2-'+Date.now();
 await writeFile('dist/sw.js',`const CACHE=${JSON.stringify(cache)},ASSETS=${JSON.stringify(assets)};
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS))));
 self.addEventListener('message',e=>{if(e.data==='ACTIVATE_UPDATE')self.skipWaiting();});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('nr-trans-v2-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
-self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(u.origin!==location.origin||e.request.method!=='GET'||u.pathname.startsWith('/api/'))return;if(e.request.mode==='navigate'){e.respondWith(fetch(e.request).catch(()=>caches.match('/shell.html')));return;}if(ASSETS.includes(u.pathname))e.respondWith(caches.open(CACHE).then(c=>c.match(u.pathname,{ignoreVary:true})).then(r=>r||fetch(e.request)));});`);
+self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(u.origin!==location.origin||e.request.method!=='GET'||u.pathname.startsWith('/api/'))return;if(e.request.mode==='navigate'){e.respondWith(fetch(e.request).catch(()=>caches.match('/shell')));return;}if(ASSETS.includes(u.pathname))e.respondWith(caches.open(CACHE).then(c=>c.match(u.pathname,{ignoreVary:true})).then(r=>r||fetch(e.request)));});`);
 console.log('Public pages prerendered; PWA shell and versioned assets generated.');
