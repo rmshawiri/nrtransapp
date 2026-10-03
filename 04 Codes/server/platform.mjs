@@ -1,3 +1,4 @@
+import {readPages} from './read-pages.mjs';
 import {createClient} from '@supabase/supabase-js';
 import {createHash,randomUUID} from 'node:crypto';
 import * as Core from '../src/domain/core.js';
@@ -96,12 +97,12 @@ export function createPlatform(env=process.env){
    const profile=await result(service.from('nr_profiles').select('*').eq('id',actor).maybeSingle());
    if(ctx.role!=='owner')return {profile,subscription:ctx.subscription,orders:[],members:[],notifications:[],payments:[],vehicleCount:0};
    const [orders,payments,members,notifications,vehicles,subscriptions]=await Promise.all([
-    result(service.from('nr_orders').select('*').eq('org_id',org).order('created_at',{ascending:false})),result(service.from('nr_payments').select('*').eq('org_id',org)),result(service.from('nr_members').select('*').eq('org_id',org)),result(service.from('nr_notifications').select('*').eq('org_id',org).order('created_at',{ascending:false})),result(service.from('nr_records').select('id').eq('org_id',org).eq('kind','vehicles').is('deleted_at',null)),result(service.from('nr_subscriptions').select('*').eq('org_id',org).order('ends_at',{ascending:false}))]);
+    readPages((start,end)=>result(service.from('nr_orders').select('*').eq('org_id',org).order('created_at',{ascending:false}).order('id').range(start,end))),readPages((start,end)=>result(service.from('nr_payments').select('*').eq('org_id',org).order('created_at',{ascending:false}).order('id').range(start,end))),readPages((start,end)=>result(service.from('nr_members').select('*').eq('org_id',org).order('user_id').range(start,end))),readPages((start,end)=>result(service.from('nr_notifications').select('*').eq('org_id',org).order('created_at',{ascending:false}).order('id').range(start,end))),readPages((start,end)=>result(service.from('nr_records').select('id').eq('org_id',org).eq('kind','vehicles').is('deleted_at',null).order('id').range(start,end))),readPages((start,end)=>result(service.from('nr_subscriptions').select('*').eq('org_id',org).order('ends_at',{ascending:false}).order('id').range(start,end)))]);
    return {profile:profile||{display_name:auth.user.user_metadata?.display_name||''},subscription:ctx.subscription,subscriptions,orders,payments,members,notifications,vehicleCount:vehicles.length};
   }
   if(action==='admin'){
    administrator(ctx);const fields={clients:['nr_organizations','id,name,created_at'],orders:['nr_orders','*'],payments:['nr_payments','*'],promotions:['nr_promotions','*'],reviews:['nr_reviews','*'],audit:['nr_audit','*'],plans:['nr_plans','*'],settings:['nr_commercial_settings','*'],subscriptions:['nr_subscriptions','*'],methods:['nr_payment_methods','*'],members:['nr_members','*'],notifications:['nr_notifications','*']};
-   return Object.fromEntries(await Promise.all(Object.entries(fields).map(async([key,[table,columns]])=>[key,await result(service.from(table).select(columns).limit(1000))])));
+   return Object.fromEntries(await Promise.all(Object.entries(fields).map(async([key,[table,columns]])=>[key,await readPages((start,end)=>{let query=service.from(table).select(columns);for(const column of table==='nr_members'?['org_id','user_id']:['id'])query=query.order(column,{ascending:true});return result(query.range(start,end));})])));
   }
   if(action==='invite'){
    owner(ctx);requireValue(typeof body.allVehicles==='boolean'&&Array.isArray(body.vehicleIds)&&body.vehicleIds.length<=1000);
