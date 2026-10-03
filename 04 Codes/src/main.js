@@ -4,12 +4,12 @@ import {orderRequest,clearOrderRequest} from './order-request.js';
 import {paymentDetail,orderStatus} from './ui/payment-detail.js';
 import {commercialPanel} from './ui/commercial-admin.js';
 import {membersPanel} from './ui/members.js';
-import '@fontsource/inter/400.css';
-import '@fontsource/inter/500.css';
-import '@fontsource/inter/600.css';
-import '@fontsource/outfit/500.css';
-import '@fontsource/outfit/600.css';
-import '@fontsource/outfit/700.css';
+import '@fontsource/inter/latin-400.css';
+import '@fontsource/inter/latin-500.css';
+import '@fontsource/inter/latin-600.css';
+import '@fontsource/outfit/latin-500.css';
+import '@fontsource/outfit/latin-600.css';
+import '@fontsource/outfit/latin-700.css';
 import './ui/operations.css';
 import './style.css';
 import {createClient} from '@supabase/supabase-js';
@@ -155,7 +155,7 @@ async function checkout(){
 }
 
 try{
- if(path==='/')root.innerHTML=home();
+ if(path==='/'){root.innerHTML=home();fetch('/api/platform?action=public-reviews').then(r=>r.ok?r.json():null).then(data=>{const section=document.querySelector('#public-reviews');if(!section||!data?.reviews?.length)return;section.querySelector('.feature-grid').innerHTML=data.reviews.map(r=>'<article><b>'+esc(r.author_name)+'</b><p aria-label="Note">'+esc(r.rating)+' / 5</p><p>'+esc(r.comment)+'</p></article>').join('');section.hidden=false;}).catch(()=>{});}
  else if(path==='/tarifs')root.innerHTML=header()+'<main id="pricing-root">'+pricing()+'</main>'+footer();
  else if(['/confidentialite','/conditions','/mentions-legales'].includes(path))root.innerHTML=legal(path.slice(1));
  else if(path==='/inscription')signup();

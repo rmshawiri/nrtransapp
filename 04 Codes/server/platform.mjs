@@ -70,6 +70,7 @@ export function createPlatform(env=process.env){
  async function orderFor(ctx,id){const order=await result(service.from('nr_orders').select('*').eq('id',uuid(id)).maybeSingle());requireValue(order&&(ctx.isAdmin||order.org_id===ctx.organizationId&&ctx.role==='owner'),'Commande introuvable.',404);return order;}
 
  return async function platform({action,token,body={},method='GET'}){
+  if(action==='public-reviews'){requireValue(method==='GET','Méthode non autorisée.',405);requireValue(service,'Service non configuré.',503);return {reviews:await result(service.from('nr_reviews').select('author_name,rating,comment,created_at').eq('status','approved').order('created_at',{ascending:false}).limit(12))};}
   const auth=await authenticate(token),actor=auth.user.id;
   if(action==='accept-invitation'){
    requireValue(method==='POST','Méthode non autorisée.',405);
