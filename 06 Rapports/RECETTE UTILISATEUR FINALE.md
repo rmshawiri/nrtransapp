@@ -43,3 +43,4 @@ Les tests techniques déjà réussis restent consignés dans les rapports numér
 - [ ] Vérifier la publication puis le masquage d'un avis réel approuvé.
 - [ ] Tester le retour proposé après une invitation invalide ou expirée.
 - [ ] Valider les coordonnées et mentions commerciales/juridiques avant ouverture au public.
+- [ ] À l'ouverture de l'espace Client, vérifier l'alerte à trois jours de l'échéance puis l'alerte après expiration ; recharger sans doublon et vérifier que les données restent consultables.

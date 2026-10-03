@@ -93,6 +93,7 @@ export function createPlatform(env=process.env){
     result(service.from('nr_members').select('*').eq('org_id',org)),result(service.from('nr_invitations').select('*').eq('org_id',org).order('created_at',{ascending:false})),result(service.from('nr_records').select('id,payload').eq('org_id',org).eq('kind','vehicles').is('deleted_at',null)),result(service.from('nr_member_vehicles').select('*').eq('org_id',org))]);
    return {members,invitations,vehicles:vehicles.map(v=>({id:v.id,name:v.payload.name})),scopes};
   }
+  if(action==='refresh-subscription-notices'){owner(ctx);return {created:await result(service.rpc('nr_subscription_notices',{p_actor:actor,p_org:org}))};}
   if(action==='client'){
    const profile=await result(service.from('nr_profiles').select('*').eq('id',actor).maybeSingle());
    if(ctx.role!=='owner')return {profile,subscription:ctx.subscription,orders:[],members:[],notifications:[],payments:[],vehicleCount:0};
